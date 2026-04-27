@@ -6,18 +6,25 @@ namespace Kraz\ReadModelDoctrine;
 
 use Kraz\ReadModel\DataSourceReadDataProvider;
 use Kraz\ReadModelDoctrine\Query\AbstractRawQuery;
+use LogicException;
 
+/** @template-covariant T of object|array<string, mixed> */
 trait DoctrineReadDataProvider
 {
-    /**
-     * @use DataSourceReadDataProvider<DataSource>
-     */
+    /** @use DataSourceReadDataProvider<T> */
     use DataSourceReadDataProvider;
 
+    /** @phpstan-return DataSource<T> */
     abstract protected function createDataSource(): DataSource;
 
+    /** @phpstan-return AbstractRawQuery<T> */
     public function getRawQuery(): AbstractRawQuery
     {
-        return $this->dataSource()->getRawQuery();
+        $dataSource = $this->dataSource();
+        if (! $dataSource instanceof DataSource) {
+            throw new LogicException('Unsupported data source!');
+        }
+
+        return $dataSource->getRawQuery();
     }
 }

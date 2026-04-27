@@ -9,6 +9,8 @@ use Doctrine\DBAL\ParameterType;
 use Doctrine\ORM\Query\Parameter;
 use Kraz\ReadModel\Collections\ArrayCollection;
 
+use function is_array;
+
 class ParametersCollection
 {
     /**
@@ -40,7 +42,7 @@ class ParametersCollection
      *
      * @return Parameter|null the value of the bound parameter, or NULL if not available
      */
-    public function getParameter(int|string $key): ?Parameter
+    public function getParameter(int|string $key): Parameter|null
     {
         $key = Parameter::normalizeName($key);
 
@@ -48,21 +50,20 @@ class ParametersCollection
             static fn (Parameter $parameter): bool => $parameter->getName() === $key,
         );
 
-        return !$filteredParameters->isEmpty() ? $filteredParameters->first() : null;
+        return ! $filteredParameters->isEmpty() ? ($filteredParameters->first() ?: null) : null;
     }
 
     /**
      * Sets a collection of query parameters.
      *
      * @param ArrayCollection|mixed[] $parameters
-     *
      * @phpstan-param ArrayCollection<int, Parameter>|mixed[] $parameters
      *
      * @return $this
      */
     public function setParameters(ArrayCollection|array $parameters): static
     {
-        if (\is_array($parameters)) {
+        if (is_array($parameters)) {
             /** @phpstan-var ArrayCollection<int, Parameter> $parameterCollection */
             $parameterCollection = new ArrayCollection();
 
@@ -94,7 +95,7 @@ class ParametersCollection
     {
         $existingParameter = $this->getParameter($key);
 
-        if (null !== $existingParameter) {
+        if ($existingParameter !== null) {
             $existingParameter->setValue($value, $type);
 
             return $this;

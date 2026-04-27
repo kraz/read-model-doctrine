@@ -4,13 +4,38 @@ declare(strict_types=1);
 
 namespace Kraz\ReadModelDoctrine\Tools;
 
+use BadMethodCallException;
 use Doctrine\ORM\Query\Expr;
 use Doctrine\ORM\QueryBuilder;
+use InvalidArgumentException;
+use Stringable;
 
-class QueryParts implements \Stringable
+use function array_filter;
+use function array_is_list;
+use function array_keys;
+use function array_unshift;
+use function array_values;
+use function assert;
+use function count;
+use function debug_backtrace;
+use function implode;
+use function is_array;
+use function is_object;
+use function is_string;
+use function key;
+use function mb_trim;
+use function reset;
+use function sprintf;
+use function str_replace;
+
+use const DEBUG_BACKTRACE_IGNORE_ARGS;
+use const PHP_EOL;
+
+class QueryParts implements Stringable
 {
-    private static ?Expr $expressionBuilder = null;
+    private static Expr|null $expressionBuilder = null;
 
+    /** @phpstan-var array<string, mixed> */
     private array $parts = [
         'where' => null,
         'groupBy' => [],
@@ -23,6 +48,7 @@ class QueryParts implements \Stringable
         return $this->parts[$queryPartName];
     }
 
+    /** @phpstan-return array<string, mixed> */
     public function getQueryParts(): array
     {
         return $this->parts;
@@ -30,33 +56,35 @@ class QueryParts implements \Stringable
 
     public function isEmpty(): bool
     {
-        $parts = array_filter($this->parts, function ($val) {
-            return '' === $val || null === $val || [] === $val;
+        $parts = array_filter($this->parts, static function ($val) {
+            return $val === '' || $val === null || $val === [];
         });
 
-        return 0 === \count($parts);
+        return count($parts) === 0;
     }
 
     /**
      * Either appends to or replaces a single, generic query part.
      *
      * The available parts are: 'where', 'groupBy', 'having' and 'orderBy'.
+     *
+     * @phpstan-param string|Expr\Andx|Expr\Orx|list<Expr\Composite|Expr\Andx|Expr\Orx>|Expr\GroupBy|Expr\OrderBy|array<string, mixed> $part
      */
     public function add(string $partName, string|object|array $part, bool $append = false): static
     {
-        if ($append && ('where' === $partName || 'having' === $partName)) {
-            throw new \InvalidArgumentException("Using \$append = true does not have an effect with 'where' or 'having' ".'parts. See QueryBuilder#andWhere() for an example for correct usage.');
+        if ($append && ($partName === 'where' || $partName === 'having')) {
+            throw new InvalidArgumentException("Using \$append = true does not have an effect with 'where' or 'having' " . 'parts. See QueryBuilder#andWhere() for an example for correct usage.');
         }
 
-        $isMultiple = \is_array($this->parts[$partName]);
+        $isMultiple = is_array($this->parts[$partName]);
 
         // Allow adding any part retrieved from self::getQueryParts().
-        if (\is_array($part)) {
+        if (is_array($part)) {
             $part = reset($part);
         }
 
         if ($append && $isMultiple) {
-            if (\is_array($part)) {
+            if (is_array($part)) {
                 $key = key($part);
 
                 $this->parts[$partName][$key][] = $part[$key];
@@ -74,7 +102,7 @@ class QueryParts implements \Stringable
     {
         self::validateVariadicParameter($predicates);
 
-        if (!(1 === \count($predicates) && $predicates[0] instanceof Expr\Composite)) {
+        if (! (count($predicates) === 1 && $predicates[0] instanceof Expr\Composite)) {
             $predicates = new Expr\Andx($predicates);
         }
 
@@ -131,7 +159,7 @@ class QueryParts implements \Stringable
     {
         self::validateVariadicParameter($having);
 
-        if (!(1 === \count($having) && ($having[0] instanceof Expr\Andx || $having[0] instanceof Expr\Orx))) {
+        if (! (count($having) === 1 && ($having[0] instanceof Expr\Andx || $having[0] instanceof Expr\Orx))) {
             $having = new Expr\Andx($having);
         }
 
@@ -170,20 +198,21 @@ class QueryParts implements \Stringable
         return $this->add('having', $part);
     }
 
-    public function orderBy(string|Expr\OrderBy $sort, ?string $order = null): static
+    public function orderBy(string|Expr\OrderBy $sort, string|null $order = null): static
     {
         $orderBy = $sort instanceof Expr\OrderBy ? $sort : new Expr\OrderBy($sort, $order);
 
         return $this->add('orderBy', $orderBy);
     }
 
-    public function addOrderBy(string|Expr\OrderBy $sort, ?string $order = null): static
+    public function addOrderBy(string|Expr\OrderBy $sort, string|null $order = null): static
     {
         $orderBy = $sort instanceof Expr\OrderBy ? $sort : new Expr\OrderBy($sort, $order);
 
         return $this->add('orderBy', $orderBy, true);
     }
 
+    /** @phpstan-param array<string, mixed> $options */
     private function getReducedQueryPart(string $queryPartName, array $options = []): string
     {
         $queryPart = $this->getQueryPart($queryPartName);
@@ -193,13 +222,14 @@ class QueryParts implements \Stringable
         }
 
         return ($options['pre'] ?? '')
-            .(\is_array($queryPart) ? implode($options['separator'], $queryPart) : $queryPart)
-            .($options['post'] ?? '');
+            . (is_array($queryPart) ? implode($options['separator'], $queryPart) : $queryPart)
+            . ($options['post'] ?? '');
     }
 
-    public function resetQueryParts(?array $parts = null): static
+    /** @phpstan-param array<string, mixed>|null $parts */
+    public function resetQueryParts(array|null $parts = null): static
     {
-        if (null === $parts) {
+        if ($parts === null) {
             $parts = array_keys($this->parts);
         }
 
@@ -212,7 +242,7 @@ class QueryParts implements \Stringable
 
     public function resetQueryPart(string $part): static
     {
-        $this->parts[$part] = \is_array($this->parts[$part]) ? [] : null;
+        $this->parts[$part] = is_array($this->parts[$part]) ? [] : null;
 
         return $this;
     }
@@ -260,46 +290,46 @@ class QueryParts implements \Stringable
     public function hasWhere(): bool
     {
         $val = $this->getWhereSqlReduced();
-        $val = mb_trim(str_replace(\PHP_EOL, ' ', $val));
+        $val = mb_trim(str_replace(PHP_EOL, ' ', $val));
 
-        return '' !== $val;
+        return $val !== '';
     }
 
     public function hasGroupBy(): bool
     {
         $val = $this->getGroupBySqlReduced();
-        $val = mb_trim(str_replace(\PHP_EOL, ' ', $val));
+        $val = mb_trim(str_replace(PHP_EOL, ' ', $val));
 
-        return '' !== $val;
+        return $val !== '';
     }
 
     public function hasHaving(): bool
     {
         $val = $this->getHavingSqlReduced();
-        $val = mb_trim(str_replace(\PHP_EOL, ' ', $val));
+        $val = mb_trim(str_replace(PHP_EOL, ' ', $val));
 
-        return '' !== $val;
+        return $val !== '';
     }
 
     public function hasOrderBy(): bool
     {
         $val = $this->getOrderBySqlReduced();
-        $val = mb_trim(str_replace(\PHP_EOL, ' ', $val));
+        $val = mb_trim(str_replace(PHP_EOL, ' ', $val));
 
-        return '' !== $val;
+        return $val !== '';
     }
 
     public function getSql(): string
     {
         return $this->getWhereSql()
-            .$this->getGroupBySql()
-            .$this->getHavingSql()
-            .$this->getOrderBySql();
+            . $this->getGroupBySql()
+            . $this->getHavingSql()
+            . $this->getOrderBySql();
     }
 
     public function expr(): Expr
     {
-        if (null === self::$expressionBuilder) {
+        if (self::$expressionBuilder === null) {
             self::$expressionBuilder = new Expr();
         }
 
@@ -308,19 +338,22 @@ class QueryParts implements \Stringable
 
     public function addTo(self|QueryBuilder $parts): static
     {
-        $new = clone $this;
+        $new      = clone $this;
         $newParts = $new->getQueryParts();
         if ($new->hasWhere()) {
             $parts->andWhere($newParts['where']);
         }
+
         if ($new->hasGroupBy()) {
             foreach ($newParts['groupBy'] as $item) {
                 $parts->addGroupBy($item);
             }
         }
+
         if ($new->hasHaving()) {
             $parts->andHaving($newParts['having']);
         }
+
         if ($new->hasOrderBy()) {
             foreach ($newParts['orderBy'] as $item) {
                 $parts->addOrderBy($item);
@@ -343,24 +376,26 @@ class QueryParts implements \Stringable
     public function __clone()
     {
         foreach ($this->parts as $part => $elements) {
-            if (\is_array($this->parts[$part])) {
+            if (is_array($this->parts[$part])) {
                 foreach ($this->parts[$part] as $idx => $element) {
-                    if (\is_object($element)) {
-                        $this->parts[$part][$idx] = clone $element;
+                    if (! is_object($element)) {
+                        continue;
                     }
+
+                    $this->parts[$part][$idx] = clone $element;
                 }
-            } elseif (\is_object($elements)) {
+            } elseif (is_object($elements)) {
                 $this->parts[$part] = clone $elements;
             }
         }
     }
 
     /**
-     * @param TItem[] $parameter
+     * @phpstan-param TItem[] $parameter
      *
      * @template TItem
      *
-     * @psalm-assert list<TItem> $parameter
+     * @phpstan-assert list<TItem> $parameter
      */
     private static function validateVariadicParameter(array $parameter): void
     {
@@ -368,14 +403,14 @@ class QueryParts implements \Stringable
             return;
         }
 
-        [, $trace] = debug_backtrace(\DEBUG_BACKTRACE_IGNORE_ARGS);
-        \assert(isset($trace['class']));
+        [, $trace] = debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS);
+        assert(isset($trace['class']));
 
         $additionalArguments = array_values(array_filter(
             array_keys($parameter),
             is_string(...),
         ));
 
-        throw new \BadMethodCallException(\sprintf('Invalid call to %s::%s(), unknown named arguments: %s', $trace['class'], $trace['function'], implode(', ', $additionalArguments)));
+        throw new BadMethodCallException(sprintf('Invalid call to %s::%s(), unknown named arguments: %s', $trace['class'], $trace['function'], implode(', ', $additionalArguments)));
     }
 }

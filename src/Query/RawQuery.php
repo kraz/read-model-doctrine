@@ -4,6 +4,12 @@ declare(strict_types=1);
 
 namespace Kraz\ReadModelDoctrine\Query;
 
+use Traversable;
+
+/**
+ * @template-covariant T of object|array<string, mixed>
+ * @extends AbstractRawQuery<T>
+ */
 class RawQuery extends AbstractRawQuery
 {
     public function close(): static
@@ -11,18 +17,23 @@ class RawQuery extends AbstractRawQuery
         return parent::closeStatement();
     }
 
-    public function toIterable(): \Traversable
+    /** @phpstan-return Traversable<array-key, T> */
+    public function toIterable(): Traversable
     {
         $itemNormalizer = $this->getItemNormalizer();
-        $result = $this->doExecute($this->getExecuteSql());
+        $result         = $this->doExecute($this->getExecuteSql());
         try {
-            if (null !== $itemNormalizer) {
-                foreach ($result->iterateAssociative() as $item) {
+            if ($itemNormalizer !== null) {
+                foreach ($result?->iterateAssociative() ?? [] as $item) {
                     $item = $itemNormalizer($item);
+
                     yield $item;
                 }
             } else {
-                yield from $result->iterateAssociative();
+                /** @phpstan-var Traversable<array-key, T> $iterable */
+                $iterable = $result?->iterateAssociative() ?? [];
+
+                yield from $iterable;
             }
         } finally {
             $this->close();

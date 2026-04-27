@@ -28,13 +28,31 @@ use Kraz\ReadModelDoctrine\Query\RawQueryBuilder;
 use Kraz\ReadModelDoctrine\Tools\ParametersCollection;
 use Kraz\ReadModelDoctrine\Tools\QueryParts;
 use Nyholm\Psr7\Factory\Psr17Factory;
+use Override;
 use Psr\Http\Message\RequestInterface;
+use RuntimeException;
 use Symfony\Bridge\PsrHttpMessage\Factory\PsrHttpFactory;
 use Symfony\Component\HttpFoundation\Request as SymfonyRequest;
+use Traversable;
 use Webmozart\Assert\Assert;
 
+use function array_key_exists;
+use function array_replace_recursive;
+use function call_user_func;
+use function class_exists;
+use function count;
+use function get_class;
+use function gettype;
+use function implode;
+use function is_callable;
+use function is_object;
+use function is_string;
+use function iterator_to_array;
+use function parse_str;
+use function sprintf;
+
 /**
- * @psalm-type DataSourceOptions = array{
+ * @phpstan-type DataSourceOptions = array{
  *     connection?: Connection|null,
  *     hydrator?: 1|2|3|4|5|6|string,
  *     root_identifier?: string,
@@ -55,8 +73,7 @@ use Webmozart\Assert\Assert;
  *     denormalizer?: callable|null,
  *     field_map?: array<string, string>|null
  * }
- * @psalm-type DataSourceOptionsWrapper = DataSourceOptions|array<never, never>
- *
+ * @phpstan-type DataSourceOptionsWrapper = DataSourceOptions|array<never, never>
  * @template T of object|array<string, mixed>
  */
 class DataSource implements ReadDataProviderInterface
@@ -65,33 +82,25 @@ class DataSource implements ReadDataProviderInterface
 
     public const int DEFAULT_HYDRATOR = AbstractQuery::HYDRATE_ARRAY;
 
-    /**
-     * @psalm-var DataSourceOptions
-     */
+    /** @phpstan-var DataSourceOptions */
     private array $options;
     private QueryBuilder|AbstractRawQuery $dataSet;
 
-    private ?int $page = null;
-    private ?int $itemsPerPage = null;
-    /**
-     * @var QueryExpression[]
-     */
+    private int|null $page         = null;
+    private int|null $itemsPerPage = null;
+    /** @var QueryExpression[] */
     private array $queryExpression = [];
 
     private ORMQuery|AbstractRawQuery|null $query = null;
-    private ?PaginatorInterface $paginator = null;
+    private PaginatorInterface|null $paginator    = null;
     private QueryExpressionProviderInterface $queryExpressionProvider;
-    /**
-     * @var callable[]
-     */
+    /** @var callable[] */
     private array $queryPartsModifier = [];
 
-    /**
-     * @psalm-param DataSourceOptionsWrapper $options
-     */
-    public function __construct(string|RawQuery|RawNativeQuery|RawQueryBuilder|NativeQuery|QueryBuilder $data, ?QueryExpressionProviderInterface $queryExpressionProvider = null, array $options = [])
+    /** @phpstan-param DataSourceOptionsWrapper $options */
+    public function __construct(string|RawQuery|RawNativeQuery|RawQueryBuilder|NativeQuery|QueryBuilder $data, QueryExpressionProviderInterface|null $queryExpressionProvider = null, array $options = [])
     {
-        /** @psalm-var DataSourceOptions $options */
+        /** @phpstan-var DataSourceOptions $options */
         $options = array_replace_recursive([
             'connection' => null,
             'hydrator' => self::DEFAULT_HYDRATOR,
@@ -109,26 +118,30 @@ class DataSource implements ReadDataProviderInterface
 
         $this->options = $options;
 
-        if (null !== $this->options['normalizer']) {
+        if ($this->options['normalizer'] !== null) {
             $this->options['item_normalizer'] = $this->options['normalizer'];
         }
-        if (null !== $this->options['denormalizer']) {
+
+        if ($this->options['denormalizer'] !== null) {
             $this->options['item_normalizer'] = $this->options['denormalizer'];
         }
-        if (null === $this->options['item_normalizer']) {
+
+        if ($this->options['item_normalizer'] === null) {
             $legacyItemNormalizer = $this->options['query']['item_normalizer'] ?? null;
-            if (null !== $legacyItemNormalizer) {
+            if ($legacyItemNormalizer !== null) {
                 $this->options['item_normalizer'] = $legacyItemNormalizer;
             }
         }
 
-        if (\is_string($data)) {
-            if (null === ($this->options['connection'] ?? null)) {
-                throw new \RuntimeException('You must specify a doctrine "connection" into the DataSource options when using the DataSource with plain (RAW) SQL!');
+        if (is_string($data)) {
+            if (($this->options['connection'] ?? null) === null) {
+                throw new RuntimeException('You must specify a doctrine "connection" into the DataSource options when using the DataSource with plain (RAW) SQL!');
             }
-            if (!$this->options['connection'] instanceof Connection) {
-                throw new \RuntimeException(\sprintf('Invalid DataSource connection. Expected instance of "%s", but got "%s"', Connection::class, \is_object($this->options['connection']) ? \get_class($this->options['connection']) : \gettype($this->options['connection'])));
+
+            if (! $this->options['connection'] instanceof Connection) {
+                throw new RuntimeException(sprintf('Invalid DataSource connection. Expected instance of "%s", but got "%s"', Connection::class, is_object($this->options['connection']) ? get_class($this->options['connection']) : gettype($this->options['connection'])));
             }
+
             $query = new RawQuery($this->options['connection'], $this->options);
             $query->setSql($data);
             $data = $query;
@@ -142,8 +155,8 @@ class DataSource implements ReadDataProviderInterface
             $data = $data->getQuery();
         }
 
-        if (!$data instanceof QueryBuilder && !$data instanceof AbstractRawQuery) {
-            throw new \RuntimeException(\sprintf('Invalid DataSource data. Expected string or instance of one of the following classes: %s, but got "%s"', '"'.implode('", "', [RawQuery::class, RawNativeQuery::class, RawQueryBuilder::class, NativeQuery::class, QueryBuilder::class]).'"', \is_object($data) ? $data::class : \gettype($data)));
+        if (! $data instanceof QueryBuilder && ! $data instanceof AbstractRawQuery) {
+            throw new RuntimeException(sprintf('Invalid DataSource data. Expected string or instance of one of the following classes: %s, but got "%s"', '"' . implode('", "', [RawQuery::class, RawNativeQuery::class, RawQueryBuilder::class, NativeQuery::class, QueryBuilder::class]) . '"', is_object($data) ? $data::class : gettype($data)));
         }
 
         if ($data instanceof AbstractRawQuery) {
@@ -151,20 +164,18 @@ class DataSource implements ReadDataProviderInterface
             $data->setOptions($this->options);
         }
 
-        if (null === $queryExpressionProvider) {
+        if ($queryExpressionProvider === null) {
             $queryExpressionProvider = new QueryExpressionProvider(new ReadModelDescriptorFactory());
         }
 
-        $this->dataSet = $data;
+        $this->dataSet                 = $data;
         $this->queryExpressionProvider = $queryExpressionProvider;
     }
 
-    /**
-     * @return AbstractRawQuery<T>|ORMQuery
-     */
+    /** @return AbstractRawQuery<T>|ORMQuery */
     public function getQuery(): AbstractRawQuery|ORMQuery
     {
-        if (null !== $this->query) {
+        if ($this->query !== null) {
             return $this->query;
         }
 
@@ -177,23 +188,24 @@ class DataSource implements ReadDataProviderInterface
 
         $queryParts = null;
 
-        if (\count($this->queryPartsModifier) > 0) {
+        if (count($this->queryPartsModifier) > 0) {
             $queryParams = new ParametersCollection();
-            $queryParts = new QueryParts();
+            $queryParts  = new QueryParts();
             foreach ($this->queryPartsModifier as $modifier) {
-                \call_user_func($modifier, $queryParts, $queryParams);
+                call_user_func($modifier, $queryParts, $queryParams);
             }
+
             foreach ($queryParams->getParameters() as $param) {
                 $preparedDataSet->setParameter($param->getName(), $param->getValue(), $param->getType());
             }
         }
 
-        if (null !== $this->page && null !== $this->itemsPerPage) {
+        if ($this->page !== null && $this->itemsPerPage !== null) {
             $firstResult = ($this->page - 1) * $this->itemsPerPage;
-            $maxResults = $this->itemsPerPage;
+            $maxResults  = $this->itemsPerPage;
         } else {
             $firstResult = null;
-            $maxResults = null;
+            $maxResults  = null;
         }
 
         $preparedDataSet->setFirstResult($firstResult);
@@ -212,6 +224,7 @@ class DataSource implements ReadDataProviderInterface
         if ($this->query instanceof ORMQuery) {
             $this->query->setHydrationMode($this->options['hydrator']);
         }
+
         if ($this->query instanceof RawNativeQuery) {
             $this->query->getNativeQuery()->setHydrationMode($this->options['hydrator']);
         }
@@ -219,9 +232,7 @@ class DataSource implements ReadDataProviderInterface
         return $this->query;
     }
 
-    /**
-     * @return AbstractRawQuery<T>
-     */
+    /** @return AbstractRawQuery<T> */
     public function getRawQuery(): AbstractRawQuery
     {
         $query = $this->getQuery();
@@ -230,17 +241,15 @@ class DataSource implements ReadDataProviderInterface
         return $query;
     }
 
-    /**
-     * @return \Kraz\ReadModel\Pagination\PaginatorInterface<T>|null
-     */
-    #[\Override]
-    public function paginator(): ?PaginatorInterface
+    /** @return PaginatorInterface<T>|null */
+    #[Override]
+    public function paginator(): PaginatorInterface|null
     {
         if ($this->paginator) {
             return $this->paginator;
         }
 
-        if (null === $this->page || null === $this->itemsPerPage) {
+        if ($this->page === null || $this->itemsPerPage === null) {
             return null;
         }
 
@@ -249,16 +258,19 @@ class DataSource implements ReadDataProviderInterface
         $paginator = null;
         if ($query instanceof ORMQuery) {
             $paginator = new Paginator($query, $this->options['paginator']['fetchJoinCollection'] ?? true);
-            if (\array_key_exists('useOutputWalkers', $this->options['paginator'] ?? [])) {
+            if (array_key_exists('useOutputWalkers', $this->options['paginator'] ?? [])) {
                 $paginator->setUseOutputWalkers($this->options['paginator']['useOutputWalkers']);
             }
+
             $paginator = new DoctrinePaginator($paginator);
         }
+
         if ($query instanceof AbstractRawQuery) {
             $paginator = new RawSqlPaginator($query);
         }
-        if (!$paginator instanceof PaginatorInterface) {
-            throw new \RuntimeException(\sprintf('Invalid paginator. Expected instance of "%s", but got "%s"', PaginatorInterface::class, \is_object($paginator) ? $paginator::class : \gettype($paginator)));
+
+        if (! $paginator instanceof PaginatorInterface) {
+            throw new RuntimeException(sprintf('Invalid paginator. Expected instance of "%s", but got "%s"', PaginatorInterface::class, is_object($paginator) ? $paginator::class : gettype($paginator)));
         }
 
         $this->paginator = $paginator;
@@ -266,15 +278,13 @@ class DataSource implements ReadDataProviderInterface
         return $this->paginator;
     }
 
-    /**
-     * @return \Traversable<array-key, T>
-     */
-    #[\Override]
-    public function getIterator(): \Traversable
+    /** @return Traversable<array-key, T> */
+    #[Override]
+    public function getIterator(): Traversable
     {
-        $query = $this->getQuery();
+        $query    = $this->getQuery();
         $iterator = $this->paginator();
-        if (null === $iterator) {
+        if ($iterator === null) {
             $iterator = $query->toIterable();
         }
 
@@ -283,6 +293,7 @@ class DataSource implements ReadDataProviderInterface
             if (is_callable($itemNormalizer)) {
                 foreach ($iterator as $item) {
                     $item = $itemNormalizer($item);
+
                     yield $item;
                 }
 
@@ -293,13 +304,13 @@ class DataSource implements ReadDataProviderInterface
         yield from $iterator;
     }
 
-    #[\Override]
+    #[Override]
     public function data(): array
     {
         return iterator_to_array($this->getIterator());
     }
 
-    #[\Override]
+    #[Override]
     public function getResult(): array|ReadResponse
     {
         $data = $this->data();
@@ -308,13 +319,13 @@ class DataSource implements ReadDataProviderInterface
             return $data;
         }
 
-        $page = $this->isPaginated() ? ($this->paginator()?->getCurrentPage() ?? 1) : 1;
+        $page  = $this->isPaginated() ? ($this->paginator()?->getCurrentPage() ?? 1) : 1;
         $total = $this->totalCount();
 
         return ReadResponse::create($data, $page, $total);
     }
 
-    #[\Override]
+    #[Override]
     public function count(): int
     {
         if ($this->isPaginated()) {
@@ -324,7 +335,7 @@ class DataSource implements ReadDataProviderInterface
         return $this->totalCount();
     }
 
-    #[\Override]
+    #[Override]
     public function totalCount(): int
     {
         $query = $this->getQuery();
@@ -340,52 +351,46 @@ class DataSource implements ReadDataProviderInterface
         return $this->withPagination(1, 1)->paginator()?->getTotalItems() ?? 0;
     }
 
-    #[\Override]
+    #[Override]
     public function isEmpty(): bool
     {
-        return 0 === $this->getQuery()->getCount();
+        return $this->getQuery()->getCount() === 0;
     }
 
-    #[\Override]
+    #[Override]
     public function isPaginated(): bool
     {
         return $this->page > 0 && $this->itemsPerPage > 0;
     }
 
-    #[\Override]
+    #[Override]
     public function queryExpressions(): array
     {
         return $this->queryExpression;
     }
 
-    /**
-     * @return DataSource<T>
-     */
-    #[\Override]
+    /** @return DataSource<T> */
+    #[Override]
     public function withQueryExpression(QueryExpression $queryExpression): static
     {
-        $cloned = clone $this;
+        $cloned                    = clone $this;
         $cloned->queryExpression[] = $queryExpression;
 
         return $cloned;
     }
 
-    /**
-     * @return DataSource<T>
-     */
-    #[\Override]
+    /** @return DataSource<T> */
+    #[Override]
     public function withoutQueryExpression(): static
     {
-        $cloned = clone $this;
+        $cloned                  = clone $this;
         $cloned->queryExpression = [];
 
         return $cloned;
     }
 
-    /**
-     * @return DataSource<T>
-     */
-    #[\Override]
+    /** @return DataSource<T> */
+    #[Override]
     public function withPagination(int $page, int $itemsPerPage): static
     {
         if ($itemsPerPage <= 0) {
@@ -395,53 +400,52 @@ class DataSource implements ReadDataProviderInterface
         Assert::positiveInteger($page);
         Assert::positiveInteger($itemsPerPage);
 
-        $cloned = clone $this;
-        $cloned->page = $page;
+        $cloned               = clone $this;
+        $cloned->page         = $page;
         $cloned->itemsPerPage = $itemsPerPage;
 
         return $cloned;
     }
 
-    /**
-     * @return DataSource<T>
-     */
-    #[\Override]
+    /** @return DataSource<T> */
+    #[Override]
     public function withoutPagination(): static
     {
-        $cloned = clone $this;
-        $cloned->page = null;
+        $cloned               = clone $this;
+        $cloned->page         = null;
         $cloned->itemsPerPage = null;
 
         return $cloned;
     }
 
-    #[\Override]
+    #[Override]
     public function withQueryRequest(QueryRequest $queryRequest): static
     {
         $clone = clone $this;
-        if (null !== $queryRequest->getQuery()) {
+        if ($queryRequest->getQuery() !== null) {
             $clone = $clone->withQueryExpression($queryRequest->getQuery());
         }
-        if (null !== $queryRequest->getPage() && null !== $queryRequest->getItemsPerPage()) {
+
+        if ($queryRequest->getPage() !== null && $queryRequest->getItemsPerPage() !== null) {
             $clone = $clone->withPagination($queryRequest->getPage(), $queryRequest->getItemsPerPage());
         }
 
         return $clone;
     }
 
-    #[\Override]
+    #[Override]
     public function withQueryModifier(callable $modifier): static
     {
-        $cloned = clone $this;
+        $cloned                       = clone $this;
         $cloned->queryPartsModifier[] = $modifier;
 
         return $cloned;
     }
 
-    #[\Override]
+    #[Override]
     public function withoutQueryModifier(): static
     {
-        $cloned = clone $this;
+        $cloned                     = clone $this;
         $cloned->queryPartsModifier = [];
 
         return $cloned;
@@ -453,7 +457,7 @@ class DataSource implements ReadDataProviderInterface
      *
      * @return $this
      */
-    #[\Override]
+    #[Override]
     public function handleRequest(object $request, array $fieldsOperator = [], array $fieldsIgnoreCase = []): static
     {
         if (class_exists(SymfonyRequest::class) && $request instanceof SymfonyRequest) {
@@ -469,12 +473,12 @@ class DataSource implements ReadDataProviderInterface
             return $this->handleInput($input, $fieldsOperator, $fieldsIgnoreCase);
         }
 
-        throw new \RuntimeException(sprintf('Unsupported request type: %s', $request::class));
+        throw new RuntimeException(sprintf('Unsupported request type: %s', $request::class));
     }
 
     public function __clone()
     {
-        $this->query = null;
+        $this->query     = null;
         $this->paginator = null;
     }
 }

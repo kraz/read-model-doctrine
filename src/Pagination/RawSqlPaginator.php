@@ -4,21 +4,29 @@ declare(strict_types=1);
 
 namespace Kraz\ReadModelDoctrine\Pagination;
 
+use InvalidArgumentException;
 use Kraz\ReadModel\Pagination\PaginatorInterface;
 use Kraz\ReadModelDoctrine\Query\AbstractRawQuery;
 use Kraz\ReadModelDoctrine\Query\RawQueryBuilder;
+use ReturnTypeWillChange;
+use Traversable;
+
+use function ceil;
+use function floor;
+use function iterator_count;
 
 /**
- * @template T of object
- *
+ * @template-covariant T of object|array<string, mixed>
  * @implements PaginatorInterface<T>
  */
 final readonly class RawSqlPaginator implements PaginatorInterface
 {
+    /** @phpstan-var AbstractRawQuery<T> */
     private AbstractRawQuery $query;
     private int $firstResult;
     private int $maxResults;
 
+    /** @phpstan-param RawQueryBuilder<T>|AbstractRawQuery<T> $query */
     public function __construct(RawQueryBuilder|AbstractRawQuery $query)
     {
         if ($query instanceof RawQueryBuilder) {
@@ -26,15 +34,17 @@ final readonly class RawSqlPaginator implements PaginatorInterface
         }
 
         $firstResult = $query->getFirstResult();
-        if (null === $firstResult) {
-            throw new \InvalidArgumentException('Missing "firstResult" from the query.');
+        if ($firstResult === null) {
+            throw new InvalidArgumentException('Missing "firstResult" from the query.');
         }
+
         $maxResults = $query->getMaxResults();
-        if (null === $maxResults) {
-            throw new \InvalidArgumentException('Missing "maxResults" from the query.');
+        if ($maxResults === null) {
+            throw new InvalidArgumentException('Missing "maxResults" from the query.');
         }
+
         $this->firstResult = $firstResult;
-        $this->maxResults = $maxResults;
+        $this->maxResults  = $maxResults;
 
         $this->query = $query;
     }
@@ -72,11 +82,9 @@ final readonly class RawSqlPaginator implements PaginatorInterface
         return iterator_count($this->getIterator());
     }
 
-    /**
-     * @return \Traversable<array-key, T>
-     */
-    #[\ReturnTypeWillChange]
-    public function getIterator(): \Traversable
+    /** @return Traversable<array-key, T> */
+    #[ReturnTypeWillChange]
+    public function getIterator(): Traversable
     {
         return $this->query->toIterable();
     }
