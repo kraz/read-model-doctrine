@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Kraz\ReadModelDoctrine\Tests\Query;
 
+use ArrayObject;
 use Doctrine\DBAL\Connection;
 use Doctrine\ORM\EntityManagerInterface;
 use Kraz\ReadModelDoctrine\Exception\NonUniqueResultException;
@@ -12,6 +13,7 @@ use Kraz\ReadModelDoctrine\Query\RawQuery;
 use Kraz\ReadModelDoctrine\Tests\Tools\ORMTestKit;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
+use stdClass;
 
 use function array_column;
 use function iterator_to_array;
@@ -156,7 +158,7 @@ final class RawQueryTest extends TestCase
         self::assertSame([1, 2, 3, 4, 5], $query->getResult());
     }
 
-    public function testGetArrayResultSkipsNormalizer(): void
+    public function testGetArrayResultCallsNormalizerWhenItReturnsArray(): void
     {
         $called = false;
         $query  = new RawQuery($this->connection, [
@@ -171,7 +173,85 @@ final class RawQueryTest extends TestCase
         $rows = $query->getArrayResult();
 
         self::assertCount(5, $rows);
-        self::assertFalse($called, 'getArrayResult() must not invoke the item normalizer');
+        self::assertTrue($called, 'getArrayResult() must invoke normalizer when it returns array');
+    }
+
+    public function testGetArrayResultSkipsNormalizerWhenItReturnsObject(): void
+    {
+        $called = false;
+        $query  = new RawQuery($this->connection, [
+            'item_normalizer' => static function (array $row) use (&$called): stdClass {
+                $called = true;
+                $obj    = new stdClass();
+                foreach ($row as $k => $v) {
+                    $obj->$k = $v;
+                }
+
+                return $obj;
+            },
+        ]);
+        $query->setSql('SELECT * FROM test_entity ORDER BY id ASC');
+
+        $rows = $query->getArrayResult();
+
+        self::assertCount(5, $rows);
+        self::assertFalse($called, 'getArrayResult() must not invoke normalizer when it returns object');
+    }
+
+    public function testGetArrayResultCallsNormalizerWithUnionArrayReturnType(): void
+    {
+        $called = false;
+        $query  = new RawQuery($this->connection, [
+            /** @phpstan-ignore return.unusedType */
+            'item_normalizer' => static function (array $row) use (&$called): array|stdClass {
+                $called = true;
+
+                return $row;
+            },
+        ]);
+        $query->setSql('SELECT * FROM test_entity ORDER BY id ASC');
+
+        $rows = $query->getArrayResult();
+
+        self::assertCount(5, $rows);
+        self::assertTrue($called, 'getArrayResult() must invoke normalizer when union return type includes array');
+    }
+
+    public function testGetArrayResultSkipsNormalizerWithNonArrayUnionReturnType(): void
+    {
+        $called = false;
+        $query  = new RawQuery($this->connection, [
+            /** @phpstan-ignore return.unusedType */
+            'item_normalizer' => static function (array $row) use (&$called): stdClass|ArrayObject {
+                $called = true;
+
+                return new stdClass();
+            },
+        ]);
+        $query->setSql('SELECT * FROM test_entity ORDER BY id ASC');
+
+        $rows = $query->getArrayResult();
+
+        self::assertCount(5, $rows);
+        self::assertFalse($called, 'getArrayResult() must not invoke normalizer when union return type excludes array');
+    }
+
+    public function testGetArrayResultSkipsNormalizerWithNoReturnType(): void
+    {
+        $called = false;
+        $query  = new RawQuery($this->connection, [
+            'item_normalizer' => static function (array $row) use (&$called) {
+                $called = true;
+
+                return $row;
+            },
+        ]);
+        $query->setSql('SELECT * FROM test_entity ORDER BY id ASC');
+
+        $rows = $query->getArrayResult();
+
+        self::assertCount(5, $rows);
+        self::assertFalse($called, 'getArrayResult() must not invoke normalizer when return type is absent');
     }
 
     // -------------------------------------------------------------------------

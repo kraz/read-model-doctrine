@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Kraz\ReadModelDoctrine\Query;
 
+use Closure;
 use Doctrine\DBAL\ArrayParameterType;
 use Doctrine\DBAL\Connection;
 use Doctrine\DBAL\ParameterType;
@@ -11,6 +12,10 @@ use Doctrine\DBAL\Platforms\AbstractPlatform as AbstractDatabasePlatform;
 use Doctrine\DBAL\Result as DBALResult;
 use Kraz\ReadModelDoctrine\Exception;
 use Kraz\ReadModelDoctrine\Tools;
+use ReflectionFunction;
+use ReflectionNamedType;
+use ReflectionType;
+use ReflectionUnionType;
 use RuntimeException;
 use Traversable;
 
@@ -67,6 +72,7 @@ abstract class AbstractRawQuery
     private int|null $count                         = null;
     private string|null $countHash                  = null;
     private AbstractDatabasePlatform|null $platform = null;
+    private bool $wantsArrayItemNormalization       = false;
 
     /** @phpstan-var AbstractRawQueryOptions */
     private array $options;
@@ -75,10 +81,7 @@ abstract class AbstractRawQuery
     public function __construct(private Connection $connection, array $options = [])
     {
         $this->sqlEx = new Tools\QueryParts();
-
-        /** @phpstan-var AbstractRawQueryOptions $options */
-        $options       = array_replace_recursive($this->getDefaultOptions(), $options);
-        $this->options = $options;
+        $this->setOptions($options);
     }
 
     /** @phpstan-return AbstractRawQueryOptions */
@@ -101,6 +104,14 @@ abstract class AbstractRawQuery
         $options       = array_replace_recursive($this->getDefaultOptions(), $options);
         $this->options = $options;
 
+        $normalizer = $this->getItemNormalizer();
+        if ($normalizer !== null) {
+            $type                              = (new ReflectionFunction(Closure::fromCallable($normalizer)))->getReturnType();
+            $this->wantsArrayItemNormalization = $this->normalizerCanReturnArray($type);
+        } else {
+            $this->wantsArrayItemNormalization = false;
+        }
+
         return $this;
     }
 
@@ -108,6 +119,23 @@ abstract class AbstractRawQuery
     public function getOptions(): array
     {
         return $this->options;
+    }
+
+    private function normalizerCanReturnArray(ReflectionType|null $type): bool
+    {
+        if ($type instanceof ReflectionNamedType) {
+            return $type->getName() === 'array';
+        }
+
+        if ($type instanceof ReflectionUnionType) {
+            foreach ($type->getTypes() as $t) {
+                if ($t instanceof ReflectionNamedType && $t->getName() === 'array') {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     protected function getItemNormalizer(): callable|null
@@ -370,11 +398,14 @@ abstract class AbstractRawQuery
     /** @return Traversable<array-key, T> */
     abstract public function toIterable(): Traversable;
 
-    /** @return T[] */
+    /** @phpstan-return (T is object ? array<string, mixed> : T[]) */
     public function getArrayResult(): array
     {
-        $itemNormalizer                   = $this->getItemNormalizer();
-        $this->options['item_normalizer'] = null;
+        $itemNormalizer = $this->getItemNormalizer();
+        if (! $this->wantsArrayItemNormalization) {
+            $this->options['item_normalizer'] = null;
+        }
+
         try {
             $result = iterator_to_array($this->toIterable());
         } finally {
