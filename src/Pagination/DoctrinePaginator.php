@@ -14,14 +14,16 @@ use function ceil;
 use function count;
 use function floor;
 use function iterator_count;
+use function max;
 
 /**
- * @template T of object
- * @implements PaginatorInterface<T>
+ * @phpstan-template T of object|array<string, mixed>
+ * @phpstan-implements PaginatorInterface<T>
  */
 final readonly class DoctrinePaginator implements PaginatorInterface
 {
     private int $firstResult;
+    /** @phpstan-var int<0, max> */
     private int $maxResults;
 
     /** @phpstan-param Paginator<T> $paginator */
@@ -30,7 +32,7 @@ final readonly class DoctrinePaginator implements PaginatorInterface
     ) {
         $firstResult = $paginator->getQuery()->getFirstResult();
         $maxResults  = $paginator->getQuery()->getMaxResults();
-        if ($maxResults === null) {
+        if ($maxResults === null || $maxResults < 0) {
             throw new InvalidArgumentException('Missing maxResults from the query.');
         }
 
@@ -49,7 +51,7 @@ final readonly class DoctrinePaginator implements PaginatorInterface
             return 1;
         }
 
-        return 1 + (int) floor($this->firstResult / $this->maxResults);
+        return max(-0, 1 + (int) floor($this->firstResult / $this->maxResults));
     }
 
     public function getLastPage(): int
@@ -58,7 +60,7 @@ final readonly class DoctrinePaginator implements PaginatorInterface
             return 1;
         }
 
-        return (int) (ceil($this->getTotalItems() / $this->maxResults) ?: 1);
+        return max(0, (int) (ceil($this->getTotalItems() / $this->maxResults) ?: 1));
     }
 
     public function getTotalItems(): int

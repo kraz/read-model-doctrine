@@ -24,10 +24,11 @@ use function is_callable;
 
 /**
  * @phpstan-import-type DataSourceOptionsWrapper from DataSource
- * @template T of object
+ * @phpstan-template T of object|array<string, mixed>
  */
 class DataSourceBuilder
 {
+    /** @phpstan-var string|RawQuery<T>|RawNativeQuery<T>|RawQueryBuilder<T>|NativeQuery|QueryBuilder|null */
     private string|RawQuery|RawNativeQuery|RawQueryBuilder|NativeQuery|QueryBuilder|null $data = null;
     private QueryExpression|null $queryExpression                                              = null;
     private QueryRequest|null $queryRequest                                                    = null;
@@ -59,8 +60,8 @@ class DataSourceBuilder
         return FilterExpression::create();
     }
 
-    /** @return DataSourceBuilder<T> */
-    public function andWhere(FilterExpression ...$expr): static
+    /** @phpstan-return self<T> */
+    public function andWhere(FilterExpression ...$expr): self
     {
         $this->queryExpression ??= QueryExpression::create();
         $this->queryExpression   = $this->queryExpression->andWhere(...$expr);
@@ -68,8 +69,8 @@ class DataSourceBuilder
         return $this;
     }
 
-    /** @return DataSourceBuilder<T> */
-    public function orWhere(FilterExpression ...$expr): static
+    /** @phpstan-return self<T> */
+    public function orWhere(FilterExpression ...$expr): self
     {
         $this->queryExpression ??= QueryExpression::create();
         $this->queryExpression   = $this->queryExpression->orWhere(...$expr);
@@ -77,8 +78,8 @@ class DataSourceBuilder
         return $this;
     }
 
-    /** @return DataSourceBuilder<T> */
-    public function sortBy(string $field, string $dir = SortExpression::DIR_ASC): static
+    /** @phpstan-return self<T> */
+    public function sortBy(string $field, string $dir = SortExpression::DIR_ASC): self
     {
         $this->queryExpression ??= QueryExpression::create();
         $this->queryExpression   = $this->queryExpression->sortBy($field, $dir);
@@ -86,18 +87,24 @@ class DataSourceBuilder
         return $this;
     }
 
-    /** @return DataSourceBuilder<T> */
+    /**
+     * @phpstan-param string|RawQuery<T>|RawNativeQuery<T>|RawQueryBuilder<T>|NativeQuery|QueryBuilder $data
+     *
+     * @phpstan-return static<T>
+     */
     public function withData(string|RawQuery|RawNativeQuery|RawQueryBuilder|NativeQuery|QueryBuilder $data): static
     {
+        /** @phpstan-var static<T> $clone */
         $clone       = clone $this;
         $clone->data = $data;
 
         return $clone;
     }
 
-    /** @return DataSourceBuilder<T> */
+    /** @phpstan-return static<T> */
     public function withQueryExpression(QueryExpression $queryExpression): static
     {
+        /** @phpstan-var static<T> $clone */
         $clone                  = clone $this;
         $clone->queryExpression = $queryExpression;
 
@@ -107,76 +114,95 @@ class DataSourceBuilder
     /**
      * @phpstan-param array<string, string> $queryExpressionFieldMapping
      *
-     * @return DataSourceBuilder<T>
+     * @phpstan-return static<T>
      */
     public function withQueryExpressionFieldMapping(array $queryExpressionFieldMapping): static
     {
+        /** @phpstan-var static<T> $clone */
         $clone                              = clone $this;
         $clone->queryExpressionFieldMapping = $queryExpressionFieldMapping;
 
         return $clone;
     }
 
-    /** @return DataSourceBuilder<T> */
+    /** @phpstan-return static<T> */
     public function withQueryModifier(callable $modifier): static
     {
+        /** @phpstan-var static<T> $clone */
         $clone                  = clone $this;
         $clone->queryModifier[] = $modifier;
 
         return $clone;
     }
 
+    /** @phpstan-return static<T> */
     public function withDenormalizer(callable $callback): static
     {
+        /** @phpstan-var static<T> $clone */
         $clone               = clone $this;
         $clone->denormalizer = $callback;
 
         return $clone;
     }
 
-    /** @return DataSourceBuilder<T> */
+    /** @phpstan-return static<T> */
     public function withQueryRequest(QueryRequest $queryRequest): static
     {
+        /** @phpstan-var static<T> $clone */
         $clone               = clone $this;
         $clone->queryRequest = $queryRequest;
 
         return $clone;
     }
 
+    /** @phpstan-return static<T> */
     public function withRootAlias(string $rootAlias): static
     {
+        /** @phpstan-var static<T> $clone */
         $clone            = clone $this;
         $clone->rootAlias = $rootAlias;
 
         return $clone;
     }
 
+    /** @phpstan-return static<T> */
     public function withRootIdentifier(string $rootIdentifier): static
     {
+        /** @phpstan-var static<T> $clone */
         $clone                 = clone $this;
         $clone->rootIdentifier = $rootIdentifier;
 
         return $clone;
     }
 
+    /** @phpstan-return static<T> */
     public function withItemNormalizer(callable $itemNormalizer): static
     {
+        /** @phpstan-var static<T> $clone */
         $clone                 = clone $this;
         $clone->itemNormalizer = $itemNormalizer;
 
         return $clone;
     }
 
+    /**
+     * @phpstan-param object|class-string $model
+     *
+     * @phpstan-return static<T>
+     */
     public function withReadModel(object|string $model): static
     {
+        /** @phpstan-var static<T> $clone */
         $clone                      = clone $this;
-        $clone->readModelDescriptor = $this->descriptorFactory->createReadModelDescriptorFrom($model);
+        $clone->readModelDescriptor = $this->descriptorFactory?->createReadModelDescriptorFrom($model);
 
         return $clone;
     }
 
+    /** @phpstan-return static<T> */
     public function withReadModelDescriptor(ReadModelDescriptor $readModelDescriptor): static
     {
+        /** @phpstan-var static<T> $clone */
         $clone                      = clone $this;
         $clone->readModelDescriptor = $readModelDescriptor;
 

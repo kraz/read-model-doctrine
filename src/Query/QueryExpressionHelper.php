@@ -60,7 +60,7 @@ use function str_starts_with;
  *         filters?: array<string, mixed>,
  *     }>
  * }
- * @template T of object|array<string, mixed>
+ * @phpstan-template T of object|array<string, mixed>
  */
 final class QueryExpressionHelper
 {

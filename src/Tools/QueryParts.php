@@ -393,7 +393,7 @@ class QueryParts implements Stringable
     /**
      * @phpstan-param TItem[] $parameter
      *
-     * @template TItem
+     * @phpstan-template TItem
      *
      * @phpstan-assert list<TItem> $parameter
      */

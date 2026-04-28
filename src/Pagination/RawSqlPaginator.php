@@ -14,16 +14,18 @@ use Traversable;
 use function ceil;
 use function floor;
 use function iterator_count;
+use function max;
 
 /**
- * @template-covariant T of object|array<string, mixed>
- * @implements PaginatorInterface<T>
+ * @phpstan-template-covariant T of object|array<string, mixed>
+ * @phpstan-implements PaginatorInterface<T>
  */
 final readonly class RawSqlPaginator implements PaginatorInterface
 {
     /** @phpstan-var AbstractRawQuery<T> */
     private AbstractRawQuery $query;
     private int $firstResult;
+    /** @phpstan-var int<0, max> */
     private int $maxResults;
 
     /** @phpstan-param RawQueryBuilder<T>|AbstractRawQuery<T> $query */
@@ -39,7 +41,7 @@ final readonly class RawSqlPaginator implements PaginatorInterface
         }
 
         $maxResults = $query->getMaxResults();
-        if ($maxResults === null) {
+        if ($maxResults === null || $maxResults < 0) {
             throw new InvalidArgumentException('Missing "maxResults" from the query.');
         }
 
@@ -60,7 +62,7 @@ final readonly class RawSqlPaginator implements PaginatorInterface
             return 1;
         }
 
-        return 1 + (int) floor($this->firstResult / $this->maxResults);
+        return max(0, 1 + (int) floor($this->firstResult / $this->maxResults));
     }
 
     public function getLastPage(): int
@@ -69,7 +71,7 @@ final readonly class RawSqlPaginator implements PaginatorInterface
             return 1;
         }
 
-        return (int) (ceil($this->getTotalItems() / $this->maxResults) ?: 1);
+        return max(0, (int) (ceil($this->getTotalItems() / $this->maxResults) ?: 1));
     }
 
     public function getTotalItems(): int

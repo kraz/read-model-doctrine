@@ -27,7 +27,7 @@ class QueryExpressionProvider implements QueryExpressionProviderInterface
      *
      * @phpstan-return ($data is QueryBuilder ? QueryBuilder : AbstractRawQuery<T>)
      *
-     * @template T of object|array<string, mixed>
+     * @phpstan-template T of object|array<string, mixed>
      */
     #[Override]
     public function apply(mixed $data, QueryExpression $queryExpression, ReadModelDescriptor|null $descriptor = null, array $options = [], int $includeData = self::INCLUDE_DATA_ALL): QueryBuilder|AbstractRawQuery

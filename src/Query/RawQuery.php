@@ -7,8 +7,8 @@ namespace Kraz\ReadModelDoctrine\Query;
 use Traversable;
 
 /**
- * @template-covariant T of object|array<string, mixed>
- * @extends AbstractRawQuery<T>
+ * @phpstan-template-covariant T of object|array<string, mixed>
+ * @phpstan-extends AbstractRawQuery<T>
  */
 class RawQuery extends AbstractRawQuery
 {

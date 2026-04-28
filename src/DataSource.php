@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Kraz\ReadModelDoctrine;
 
 use Doctrine\DBAL\Connection;
+use Doctrine\DBAL\Platforms\AbstractPlatform as AbstractDatabasePlatform;
 use Doctrine\ORM\AbstractQuery;
 use Doctrine\ORM\NativeQuery;
 use Doctrine\ORM\Query as ORMQuery;
@@ -43,7 +44,6 @@ use function class_exists;
 use function count;
 use function get_class;
 use function gettype;
-use function implode;
 use function is_callable;
 use function is_object;
 use function is_string;
@@ -52,53 +52,63 @@ use function parse_str;
 use function sprintf;
 
 /**
+ * @phpstan-import-type SqlFormatterOptions from Tools\SqlFormatter
  * @phpstan-type DataSourceOptions = array{
- *     connection?: Connection|null,
- *     hydrator?: 1|2|3|4|5|6|string,
- *     root_identifier?: string,
- *     root_alias?: string|string[],
- *     quoteTableAlias?: bool,
- *     quoteFieldNames?: bool,
- *     quoteFieldNamesChar?: string,
- *     read_model_descriptor?: ReadModelDescriptor|string|null,
- *     item_normalizer?: callable|null,
+ *     connection: Connection|null,
+ *     hydrator: 1|2|3|4|5|6|string,
+ *     root_identifier: string,
+ *     root_alias: string|string[],
+ *     quoteTableAlias: bool,
+ *     quoteFieldNames: bool,
+ *     quoteFieldNamesChar: string,
+ *     read_model_descriptor: ReadModelDescriptor|string|null,
+ *     item_normalizer: callable|null,
  *     query?: array{
  *         item_normalizer?: callable|null,
  *     },
  *     paginator?: array{
- *         fetchJoinCollection?: bool,
- *         useOutputWalkers?: bool,
+ *         fetchJoinCollection: bool,
+ *         useOutputWalkers: bool,
  *     },
- *     normalizer?: callable|null,
- *     denormalizer?: callable|null,
- *     field_map?: array<string, string>|null
+ *     normalizer: callable|null,
+ *     denormalizer: callable|null,
+ *     field_map: array<string, string>|null,
+ *     database_platform_class: array<string, class-string<AbstractDatabasePlatform>>,
+ *     sql_formatter: SqlFormatterOptions,
+ *     use_count_cache: bool,
  * }
  * @phpstan-type DataSourceOptionsWrapper = DataSourceOptions|array<never, never>
- * @template T of object|array<string, mixed>
+ * @phpstan-template T of object|array<string, mixed>
+ * @phpstan-implements ReadDataProviderInterface<T>
  */
 class DataSource implements ReadDataProviderInterface
 {
+    /** @use BasicReadDataProvider<T> */
     use BasicReadDataProvider;
 
     public const int DEFAULT_HYDRATOR = AbstractQuery::HYDRATE_ARRAY;
 
     /** @phpstan-var DataSourceOptions */
     private array $options;
+    /** @phpstan-var QueryBuilder|AbstractRawQuery<T> */
     private QueryBuilder|AbstractRawQuery $dataSet;
-
     private int|null $page         = null;
     private int|null $itemsPerPage = null;
     /** @var QueryExpression[] */
     private array $queryExpression = [];
-
+    /** @phpstan-var ORMQuery|AbstractRawQuery<T> */
     private ORMQuery|AbstractRawQuery|null $query = null;
-    private PaginatorInterface|null $paginator    = null;
+    /** @phpstan-var PaginatorInterface<T>|null */
+    private PaginatorInterface|null $paginator = null;
     private QueryExpressionProviderInterface $queryExpressionProvider;
     /** @var callable[] */
     private array $queryPartsModifier = [];
 
-    /** @phpstan-param DataSourceOptionsWrapper $options */
-    public function __construct(string|RawQuery|RawNativeQuery|RawQueryBuilder|NativeQuery|QueryBuilder $data, QueryExpressionProviderInterface|null $queryExpressionProvider = null, array $options = [])
+    /**
+     * @phpstan-param string|AbstractRawQuery<T>|RawQueryBuilder<T>|NativeQuery|QueryBuilder $data
+     * @phpstan-param DataSourceOptionsWrapper $options
+     */
+    public function __construct(string|AbstractRawQuery|RawQueryBuilder|NativeQuery|QueryBuilder $data, QueryExpressionProviderInterface|null $queryExpressionProvider = null, array $options = [])
     {
         /** @phpstan-var DataSourceOptions $options */
         $options = array_replace_recursive([
@@ -114,6 +124,9 @@ class DataSource implements ReadDataProviderInterface
             'normalizer' => null,
             'denormalizer' => null,
             'field_map' => null,
+            'database_platform_class' => [],
+            'sql_formatter' => [],
+            'use_count_cache' => true,
         ], $options);
 
         $this->options = $options;
@@ -133,6 +146,9 @@ class DataSource implements ReadDataProviderInterface
             }
         }
 
+        /** @phpstan-var QueryBuilder|AbstractRawQuery<T>|null $dataSet */
+        $dataSet = null;
+
         if (is_string($data)) {
             if (($this->options['connection'] ?? null) === null) {
                 throw new RuntimeException('You must specify a doctrine "connection" into the DataSource options when using the DataSource with plain (RAW) SQL!');
@@ -142,33 +158,41 @@ class DataSource implements ReadDataProviderInterface
                 throw new RuntimeException(sprintf('Invalid DataSource connection. Expected instance of "%s", but got "%s"', Connection::class, is_object($this->options['connection']) ? get_class($this->options['connection']) : gettype($this->options['connection'])));
             }
 
-            $query = new RawQuery($this->options['connection'], $this->options);
-            $query->setSql($data);
-            $data = $query;
+            /** @phpstan-var RawQuery<T> $dataSet */
+            /** @phpstan-ignore argument.type */
+            $dataSet = new RawQuery($this->options['connection'], $this->options);
+            $dataSet->setSql($data);
         }
 
         if ($data instanceof NativeQuery) {
-            $data = new RawNativeQuery($data, $this->options);
+            /** @phpstan-var RawNativeQuery<T> $dataSet */
+            /** @phpstan-ignore argument.type */
+            $dataSet = new RawNativeQuery($data, $this->options);
         }
 
         if ($data instanceof RawQueryBuilder) {
-            $data = $data->getQuery();
-        }
-
-        if (! $data instanceof QueryBuilder && ! $data instanceof AbstractRawQuery) {
-            throw new RuntimeException(sprintf('Invalid DataSource data. Expected string or instance of one of the following classes: %s, but got "%s"', '"' . implode('", "', [RawQuery::class, RawNativeQuery::class, RawQueryBuilder::class, NativeQuery::class, QueryBuilder::class]) . '"', is_object($data) ? $data::class : gettype($data)));
+            $dataSet = $data->getQuery();
         }
 
         if ($data instanceof AbstractRawQuery) {
-            $data = clone $data;
-            $data->setOptions($this->options);
+            $dataSet = clone $data;
+            /** @phpstan-ignore argument.type */
+            $dataSet->setOptions($this->options);
+        }
+
+        if ($data instanceof QueryBuilder) {
+            $dataSet = clone $data;
         }
 
         if ($queryExpressionProvider === null) {
             $queryExpressionProvider = new QueryExpressionProvider(new ReadModelDescriptorFactory());
         }
 
-        $this->dataSet                 = $data;
+        if ($dataSet === null) {
+            throw new RuntimeException(sprintf('Unsupported data type: %s', is_object($data) ? $data::class : gettype($data)));
+        }
+
+        $this->dataSet                 = $dataSet;
         $this->queryExpressionProvider = $queryExpressionProvider;
     }
 
@@ -257,20 +281,23 @@ class DataSource implements ReadDataProviderInterface
 
         $paginator = null;
         if ($query instanceof ORMQuery) {
-            $paginator = new Paginator($query, $this->options['paginator']['fetchJoinCollection'] ?? true);
+            /** @phpstan-var Paginator<T> $doctrinePaginator */
+            $doctrinePaginator = new Paginator($query, $this->options['paginator']['fetchJoinCollection'] ?? true);
             if (array_key_exists('useOutputWalkers', $this->options['paginator'] ?? [])) {
-                $paginator->setUseOutputWalkers($this->options['paginator']['useOutputWalkers']);
+                $doctrinePaginator->setUseOutputWalkers($this->options['paginator']['useOutputWalkers']);
             }
 
-            $paginator = new DoctrinePaginator($paginator);
+            /** @phpstan-var DoctrinePaginator<T> $paginator */
+            $paginator = new DoctrinePaginator($doctrinePaginator);
         }
 
         if ($query instanceof AbstractRawQuery) {
+            /** @phpstan-var RawSqlPaginator<T> $paginator */
             $paginator = new RawSqlPaginator($query);
         }
 
-        if (! $paginator instanceof PaginatorInterface) {
-            throw new RuntimeException(sprintf('Invalid paginator. Expected instance of "%s", but got "%s"', PaginatorInterface::class, is_object($paginator) ? $paginator::class : gettype($paginator)));
+        if ($paginator === null) {
+            throw new RuntimeException('Can not create the data source query paginator.');
         }
 
         $this->paginator = $paginator;
@@ -329,7 +356,7 @@ class DataSource implements ReadDataProviderInterface
     public function count(): int
     {
         if ($this->isPaginated()) {
-            return $this->paginator()->count();
+            return $this->paginator()?->count() ?? 0;
         }
 
         return $this->totalCount();
@@ -344,7 +371,7 @@ class DataSource implements ReadDataProviderInterface
         }
 
         if ($this->isPaginated()) {
-            return $this->paginator()->getTotalItems();
+            return $this->paginator()?->getTotalItems() ?? 0;
         }
 
         // Fetching total count from ORM Query is easier via pagination
@@ -354,7 +381,7 @@ class DataSource implements ReadDataProviderInterface
     #[Override]
     public function isEmpty(): bool
     {
-        return $this->getQuery()->getCount() === 0;
+        return $this->totalCount() === 0;
     }
 
     #[Override]
@@ -369,27 +396,26 @@ class DataSource implements ReadDataProviderInterface
         return $this->queryExpression;
     }
 
-    /** @return DataSource<T> */
     #[Override]
     public function withQueryExpression(QueryExpression $queryExpression): static
     {
+        /** @phpstan-var static<T> $cloned */
         $cloned                    = clone $this;
         $cloned->queryExpression[] = $queryExpression;
 
         return $cloned;
     }
 
-    /** @return DataSource<T> */
     #[Override]
     public function withoutQueryExpression(): static
     {
+        /** @phpstan-var static<T> $cloned */
         $cloned                  = clone $this;
         $cloned->queryExpression = [];
 
         return $cloned;
     }
 
-    /** @return DataSource<T> */
     #[Override]
     public function withPagination(int $page, int $itemsPerPage): static
     {
@@ -400,6 +426,7 @@ class DataSource implements ReadDataProviderInterface
         Assert::positiveInteger($page);
         Assert::positiveInteger($itemsPerPage);
 
+        /** @phpstan-var static<T> $cloned */
         $cloned               = clone $this;
         $cloned->page         = $page;
         $cloned->itemsPerPage = $itemsPerPage;
@@ -407,10 +434,10 @@ class DataSource implements ReadDataProviderInterface
         return $cloned;
     }
 
-    /** @return DataSource<T> */
     #[Override]
     public function withoutPagination(): static
     {
+        /** @phpstan-var static<T> $cloned */
         $cloned               = clone $this;
         $cloned->page         = null;
         $cloned->itemsPerPage = null;
@@ -421,21 +448,23 @@ class DataSource implements ReadDataProviderInterface
     #[Override]
     public function withQueryRequest(QueryRequest $queryRequest): static
     {
-        $clone = clone $this;
+        /** @phpstan-var static<T> $cloned */
+        $cloned = clone $this;
         if ($queryRequest->getQuery() !== null) {
-            $clone = $clone->withQueryExpression($queryRequest->getQuery());
+            $cloned = $cloned->withQueryExpression($queryRequest->getQuery());
         }
 
         if ($queryRequest->getPage() !== null && $queryRequest->getItemsPerPage() !== null) {
-            $clone = $clone->withPagination($queryRequest->getPage(), $queryRequest->getItemsPerPage());
+            $cloned = $cloned->withPagination($queryRequest->getPage(), $queryRequest->getItemsPerPage());
         }
 
-        return $clone;
+        return $cloned;
     }
 
     #[Override]
     public function withQueryModifier(callable $modifier): static
     {
+        /** @phpstan-var static<T> $cloned */
         $cloned                       = clone $this;
         $cloned->queryPartsModifier[] = $modifier;
 
@@ -445,6 +474,7 @@ class DataSource implements ReadDataProviderInterface
     #[Override]
     public function withoutQueryModifier(): static
     {
+        /** @phpstan-var static<T> $cloned */
         $cloned                     = clone $this;
         $cloned->queryPartsModifier = [];
 
@@ -454,8 +484,6 @@ class DataSource implements ReadDataProviderInterface
     /**
      * @phpstan-param array<string, string> $fieldsOperator
      * @phpstan-param array<string, bool> $fieldsIgnoreCase
-     *
-     * @return $this
      */
     #[Override]
     public function handleRequest(object $request, array $fieldsOperator = [], array $fieldsIgnoreCase = []): static
@@ -470,6 +498,7 @@ class DataSource implements ReadDataProviderInterface
         if ($request instanceof RequestInterface) {
             parse_str($request->getUri()->getQuery(), $input);
 
+            /** @phpstan-ignore argument.type */
             return $this->handleInput($input, $fieldsOperator, $fieldsIgnoreCase);
         }
 

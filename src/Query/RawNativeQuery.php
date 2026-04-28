@@ -22,8 +22,8 @@ use function strcasecmp;
 /**
  * @phpstan-import-type WrapperParameterTypeArray from Connection
  * @phpstan-import-type AbstractRawQueryOptionsWrapper from AbstractRawQuery
- * @template-covariant T of object|array<string, mixed>
- * @extends AbstractRawQuery<T>
+ * @phpstan-template-covariant T of object|array<string, mixed>
+ * @phpstan-extends AbstractRawQuery<T>
  */
 class RawNativeQuery extends AbstractRawQuery
 {

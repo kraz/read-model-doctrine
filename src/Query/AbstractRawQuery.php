@@ -29,6 +29,7 @@ use function is_callable;
 use function is_object;
 use function is_string;
 use function iterator_to_array;
+use function max;
 use function method_exists;
 use function sha1;
 use function sprintf;
@@ -42,13 +43,13 @@ use const PHP_EOL;
  * @phpstan-type WrapperParameterType = ParameterType|ArrayParameterType|string|int
  * @phpstan-type WrapperParameterTypeArray = array<int|string, WrapperParameterType>
  * @phpstan-type AbstractRawQueryOptions = array{
- *     database_platform_class?: array<string, class-string<AbstractDatabasePlatform>>,
- *     sql_formatter?: SqlFormatterOptions,
- *     use_count_cache?: bool,
- *     item_normalizer?: callable|null,
+ *     database_platform_class: array<string, class-string<AbstractDatabasePlatform>>,
+ *     sql_formatter: SqlFormatterOptions,
+ *     use_count_cache: bool,
+ *     item_normalizer: callable|null,
  *  }
  * @phpstan-type AbstractRawQueryOptionsWrapper = AbstractRawQueryOptions|array<never, never>
- * @template-covariant T of object|array<string, mixed>
+ * @phpstan-template-covariant T of object|array<string, mixed>
  */
 abstract class AbstractRawQuery
 {
@@ -57,11 +58,12 @@ abstract class AbstractRawQuery
     /** @phpstan-var array<int|string, mixed> */
     private array $params = [];
     /** @phpstan-var WrapperParameterTypeArray */
-    private array $paramTypes                       = [];
-    private DBALResult|null $statement              = null;
-    private int|null $firstResult                   = null;
-    private int|null $maxResults                    = null;
-    private string|null $countSql                   = null;
+    private array $paramTypes          = [];
+    private DBALResult|null $statement = null;
+    private int|null $firstResult      = null;
+    private int|null $maxResults       = null;
+    private string|null $countSql      = null;
+    /** @phpstan-var int<0, max> */
     private int|null $count                         = null;
     private string|null $countHash                  = null;
     private AbstractDatabasePlatform|null $platform = null;
@@ -440,6 +442,8 @@ abstract class AbstractRawQuery
 
     /**
      * Get the query TOTAL row count. No limits or offsets used.
+     *
+     * @phpstan-return int<0, max>
      */
     public function getCount(): int
     {
@@ -475,7 +479,7 @@ abstract class AbstractRawQuery
                 ->setFirstResult($firstResult);
         }
 
-        $this->count = $count;
+        $this->count = max(0, $count);
 
         return $this->count;
     }

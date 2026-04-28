@@ -8,7 +8,7 @@ use Kraz\ReadModel\DataSourceReadDataProvider;
 use Kraz\ReadModelDoctrine\Query\AbstractRawQuery;
 use LogicException;
 
-/** @template-covariant T of object|array<string, mixed> */
+/** @phpstan-template T of object|array<string, mixed> */
 trait DoctrineReadDataProvider
 {
     /** @use DataSourceReadDataProvider<T> */
@@ -25,6 +25,9 @@ trait DoctrineReadDataProvider
             throw new LogicException('Unsupported data source!');
         }
 
-        return $dataSource->getRawQuery();
+        /** @phpstan-var AbstractRawQuery<T> $query */
+        $query = $dataSource->getRawQuery();
+
+        return $query;
     }
 }
