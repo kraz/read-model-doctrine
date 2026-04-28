@@ -18,7 +18,6 @@
     ],
     "require": {
         "php": ">=8.4",
-        "ext-mbstring": "*",
         "doctrine/orm": "^3.6",
         "kraz/read-model": "dev-main",
         "webmozart/assert": "^2.3"
