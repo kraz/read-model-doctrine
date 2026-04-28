@@ -6,4 +6,6 @@ parameters:
         - src/
         - tests/
     ignoreErrors:
-        - identifier: function.alreadyNarrowedType
+        -
+            identifier: function.alreadyNarrowedType
+            path: src/ReadModelDescriptorFactory.php
