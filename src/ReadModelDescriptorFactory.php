@@ -6,13 +6,13 @@ namespace Kraz\ReadModelDoctrine;
 
 use Doctrine\ORM\Mapping as ORM;
 use Doctrine\ORM\QueryBuilder;
+use InvalidArgumentException;
 use Kraz\ReadModel\BasicReadModelDescriptorFactory;
 use Kraz\ReadModel\ReadModelDescriptor;
 use Kraz\ReadModel\ReadModelDescriptorFactoryInterface;
 use Override;
 use ReflectionClass;
 use ReflectionNamedType;
-use Webmozart\Assert\Assert;
 
 use function array_filter;
 use function array_map;
@@ -106,7 +106,10 @@ class ReadModelDescriptorFactory implements ReadModelDescriptorFactoryInterface
         if (count($aliases) > 1) {
             /** @phpstan-ignore arrayValues.list */
             $aliasesIndex = array_values($aliases);
-            Assert::eq(count($entityClassIndex), count($aliasesIndex));
+            if (count($entityClassIndex) !== count($aliasesIndex)) {
+                throw new InvalidArgumentException('The number of aliases must match the number of entities.');
+            }
+
             sort($aliasesIndex);
             $key = sha1(implode('|', $entityClassIndex) . '@' . implode('|', $aliasesIndex));
         } else {

@@ -11,6 +11,7 @@ use Doctrine\ORM\NativeQuery;
 use Doctrine\ORM\Query as ORMQuery;
 use Doctrine\ORM\QueryBuilder;
 use Doctrine\ORM\Tools\Pagination\Paginator;
+use InvalidArgumentException;
 use Kraz\ReadModel\BasicReadDataProvider;
 use Kraz\ReadModel\Pagination\PaginatorInterface;
 use Kraz\ReadModel\Query\QueryExpression;
@@ -35,7 +36,6 @@ use RuntimeException;
 use Symfony\Bridge\PsrHttpMessage\Factory\PsrHttpFactory;
 use Symfony\Component\HttpFoundation\Request as SymfonyRequest;
 use Traversable;
-use Webmozart\Assert\Assert;
 
 use function array_key_exists;
 use function array_replace_recursive;
@@ -260,7 +260,9 @@ class DataSource implements ReadDataProviderInterface
     public function getRawQuery(): AbstractRawQuery
     {
         $query = $this->getQuery();
-        Assert::isInstanceOf($query, AbstractRawQuery::class);
+        if (! ($query instanceof AbstractRawQuery)) {
+            throw new InvalidArgumentException(sprintf('Expected an instance of %s. Got: %s', AbstractRawQuery::class, $query::class));
+        }
 
         return $query;
     }
@@ -423,8 +425,9 @@ class DataSource implements ReadDataProviderInterface
             return $this->withoutPagination();
         }
 
-        Assert::positiveInteger($page);
-        Assert::positiveInteger($itemsPerPage);
+        if ($page <= 0) {
+            throw new InvalidArgumentException(sprintf('Expected a positive integer. Got: %d', $page));
+        }
 
         /** @phpstan-var static<T> $cloned */
         $cloned               = clone $this;
@@ -489,7 +492,10 @@ class DataSource implements ReadDataProviderInterface
     public function handleRequest(object $request, array $fieldsOperator = [], array $fieldsIgnoreCase = []): static
     {
         if (class_exists(SymfonyRequest::class) && $request instanceof SymfonyRequest) {
-            Assert::classExists(Psr17Factory::class, 'You need to install "nyholm/psr7" and "symfony/psr-http-message-bridge" in order to handle Symfony requests!');
+            if (! class_exists(Psr17Factory::class)) {
+                throw new InvalidArgumentException('You need to install "nyholm/psr7" and "symfony/psr-http-message-bridge" in order to handle Symfony requests!');
+            }
+
             $psr17Factory   = new Psr17Factory();
             $psrHttpFactory = new PsrHttpFactory($psr17Factory, $psr17Factory, $psr17Factory, $psr17Factory);
             $request        = $psrHttpFactory->createRequest($request);

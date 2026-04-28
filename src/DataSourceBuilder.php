@@ -7,6 +7,7 @@ namespace Kraz\ReadModelDoctrine;
 use Doctrine\DBAL\Connection;
 use Doctrine\ORM\NativeQuery;
 use Doctrine\ORM\QueryBuilder;
+use InvalidArgumentException;
 use Kraz\ReadModel\Query\FilterExpression;
 use Kraz\ReadModel\Query\QueryExpression;
 use Kraz\ReadModel\Query\QueryExpressionProviderInterface;
@@ -18,7 +19,6 @@ use Kraz\ReadModelDoctrine\Query\QueryExpressionProvider;
 use Kraz\ReadModelDoctrine\Query\RawNativeQuery;
 use Kraz\ReadModelDoctrine\Query\RawQuery;
 use Kraz\ReadModelDoctrine\Query\RawQueryBuilder;
-use Webmozart\Assert\Assert;
 
 use function is_callable;
 
@@ -216,7 +216,10 @@ class DataSourceBuilder
      */
     public function create(Connection $connection, array $options = []): DataSource
     {
-        Assert::notNull($this->data);
+        if ($this->data === null) {
+            throw new InvalidArgumentException('Expected a value other than null.');
+        }
+
         $options['connection'] = $connection;
         if ($this->rootAlias !== null) {
             $options['root_alias'] ??= $this->rootAlias;

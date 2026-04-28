@@ -12,20 +12,22 @@ use Doctrine\ORM\Query\Expr\Comparison;
 use Doctrine\ORM\Query\Expr\Func;
 use Doctrine\ORM\Query\Expr\Orx;
 use Doctrine\ORM\QueryBuilder;
+use InvalidArgumentException;
 use Kraz\ReadModel\Query\FilterExpression;
 use Kraz\ReadModel\Query\QueryExpression;
 use Kraz\ReadModel\Query\QueryExpressionProviderInterface;
 use Kraz\ReadModel\ReadModelDescriptor;
 use Kraz\ReadModelDoctrine\Tools\QueryParts;
 use RuntimeException;
-use Webmozart\Assert\Assert;
 
 use function array_key_exists;
 use function array_map;
 use function array_shift;
 use function array_unshift;
+use function class_exists;
 use function count;
 use function explode;
+use function gettype;
 use function implode;
 use function in_array;
 use function is_array;
@@ -123,8 +125,14 @@ final class QueryExpressionHelper
         if (! is_array($rootIdentifier) && $this->data instanceof QueryBuilder) {
             $rootEntity = $this->data->getRootEntities();
             $rootEntity = reset($rootEntity);
-            Assert::stringNotEmpty($rootEntity);
-            Assert::classExists($rootEntity);
+            if (! is_string($rootEntity) || $rootEntity === '') {
+                throw new InvalidArgumentException('Expected a non-empty string.');
+            }
+
+            if (! class_exists($rootEntity)) {
+                throw new InvalidArgumentException(sprintf('Expected an existing class name. Got: %s', $rootEntity));
+            }
+
             $rootMetaData   = $this->data->getEntityManager()->getClassMetadata($rootEntity);
             $rootIdentifier = $rootMetaData->getIdentifierFieldNames();
         }
@@ -139,7 +147,9 @@ final class QueryExpressionHelper
 
         $rootIdentifier = reset($rootIdentifier);
 
-        Assert::stringNotEmpty($rootIdentifier, 'Can not determine the "root_identifier"!');
+        if (! is_string($rootIdentifier) || $rootIdentifier === '') {
+            throw new InvalidArgumentException('Can not determine the "root_identifier"!');
+        }
 
         if (str_contains($rootIdentifier, '.')) {
             throw new RuntimeException('The "root_identifier" option must not contain "." symbol. Please use "root_alias" to specify the alias of the table which holds the identifier column!');
@@ -391,7 +401,10 @@ final class QueryExpressionHelper
                     $paramValue = array_map('trim', explode(',', $paramValue));
                 }
 
-                Assert::isArray($paramValue);
+                if (! is_array($paramValue)) {
+                    throw new InvalidArgumentException(sprintf('Expected an array. Got: %s', gettype($paramValue)));
+                }
+
                 if ($ignoreCase) {
                     $paramValue = array_map(static fn ($v) => mb_strtoupper((string) $v, 'UTF-8'), $paramValue);
                     $fieldEx    = (string) $expr->upper($fieldEx);

@@ -1,4 +1,4 @@
-# Read Model
+# Doctrine Read Model
 
 Doctrine implementation for the Read Models Domain. 
 
