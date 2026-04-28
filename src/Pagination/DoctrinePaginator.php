@@ -51,7 +51,7 @@ final readonly class DoctrinePaginator implements PaginatorInterface
             return 1;
         }
 
-        return max(-0, 1 + (int) floor($this->firstResult / $this->maxResults));
+        return max(0, 1 + (int) floor($this->firstResult / $this->maxResults));
     }
 
     public function getLastPage(): int
