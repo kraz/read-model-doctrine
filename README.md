@@ -1,6 +1,6 @@
 # Doctrine Read Model
 
-Doctrine implementation for the Read Models Domain. 
+Doctrine implementation for the [Read Models Domain](https://github.com/kraz/read-model). 
 
 > [!WARNING]  
 > This library is still work in progress!
