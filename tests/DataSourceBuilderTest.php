@@ -548,49 +548,53 @@ final class DataSourceBuilderTest extends TestCase
 
     public function testUserReadModelFixtureReturnsAllRows(): void
     {
-        $ds = (new UserReadModelFixture())->createDataSource($this->connection);
+        $rm = new UserReadModelFixture($this->connection);
 
-        self::assertCount(5, $ds->data());
+        self::assertCount(5, $rm);
+        self::assertCount(5, $rm->data());
     }
 
     public function testUserReadModelFixtureFiltersById(): void
     {
-        $ds = (new UserReadModelFixture())->createDataSource($this->connection)
+        $rm = new UserReadModelFixture($this->connection)
             ->withQueryExpression(
                 QueryExpression::create()->andWhere(
                     FilterExpression::create()->equalTo(UserReadModelFixture::FIELD_ID, 3),
                 ),
             );
 
-        self::assertSame([3], $this->ids($ds->data()));
+        self::assertSame([3], $this->ids($rm));
+        self::assertSame([3], $this->ids($rm->data()));
     }
 
     public function testUserReadModelFixtureFiltersByDepartment(): void
     {
-        $ds = (new UserReadModelFixture())->createDataSource($this->connection)
+        $rm = new UserReadModelFixture($this->connection)
             ->withQueryExpression(
                 QueryExpression::create()->andWhere(
                     FilterExpression::create()->equalTo(UserReadModelFixture::FIELD_DEPARTMENT, 'sales'),
                 ),
             );
 
-        self::assertSame([3, 4], $this->ids($ds->data()));
+        self::assertSame([3, 4], $this->ids($rm));
+        self::assertSame([3, 4], $this->ids($rm->data()));
     }
 
     public function testUserReadModelFixtureSupportsPagination(): void
     {
-        $ds = (new UserReadModelFixture())->createDataSource($this->connection)
+        $rm = new UserReadModelFixture($this->connection)
             ->withPagination(2, 2);
 
-        self::assertTrue($ds->isPaginated());
-        self::assertSame([3, 4], $this->ids($ds->data()));
-        self::assertSame(5, $ds->totalCount());
+        self::assertTrue($rm->isPaginated());
+        self::assertSame([3, 4], $this->ids($rm));
+        self::assertSame([3, 4], $this->ids($rm->data()));
+        self::assertSame(5, $rm->totalCount());
     }
 
     public function testUserReadModelFixtureCombinesFilterAndPagination(): void
     {
         // eng has Alice (1) and Bob (2). Page 1 of 1 per page → only Alice.
-        $ds = (new UserReadModelFixture())->createDataSource($this->connection)
+        $rm = new UserReadModelFixture($this->connection)
             ->withQueryExpression(
                 QueryExpression::create()->andWhere(
                     FilterExpression::create()->equalTo(UserReadModelFixture::FIELD_DEPARTMENT, 'eng'),
@@ -598,7 +602,8 @@ final class DataSourceBuilderTest extends TestCase
             )
             ->withPagination(1, 1);
 
-        self::assertSame([1], $this->ids($ds->data()));
-        self::assertSame(2, $ds->totalCount());
+        self::assertSame([1], $this->ids($rm));
+        self::assertSame([1], $this->ids($rm->data()));
+        self::assertSame(2, $rm->totalCount());
     }
 }
