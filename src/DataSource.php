@@ -38,6 +38,7 @@ use Symfony\Component\HttpFoundation\Request as SymfonyRequest;
 use Traversable;
 
 use function array_key_exists;
+use function array_pop;
 use function array_replace_recursive;
 use function call_user_func;
 use function class_exists;
@@ -94,15 +95,19 @@ class DataSource implements ReadDataProviderInterface
     private QueryBuilder|AbstractRawQuery $dataSet;
     private int|null $page         = null;
     private int|null $itemsPerPage = null;
-    /** @var QueryExpression[] */
-    private array $queryExpression = [];
+    /** @phpstan-var QueryExpression[] */
+    private array $queryExpressions = [];
+    /** @phpstan-var array<int, QueryExpression[]> */
+    private array $queryExpressionsHistory = [];
     /** @phpstan-var ORMQuery|AbstractRawQuery<T> */
     private ORMQuery|AbstractRawQuery|null $query = null;
     /** @phpstan-var PaginatorInterface<T>|null */
     private PaginatorInterface|null $paginator = null;
     private QueryExpressionProviderInterface $queryExpressionProvider;
-    /** @var callable[] */
-    private array $queryPartsModifier = [];
+    /** @phpstan-var callable[] */
+    private array $queryModifiers = [];
+    /** @phpstan-var array<int, callable[]> */
+    private array $queryModifiersHistory = [];
 
     /**
      * @phpstan-param string|AbstractRawQuery<T>|RawQueryBuilder<T>|NativeQuery|QueryBuilder $data
@@ -205,17 +210,17 @@ class DataSource implements ReadDataProviderInterface
 
         $preparedDataSet = clone $this->dataSet;
 
-        foreach ($this->queryExpression as $item) {
+        foreach ($this->queryExpressions as $item) {
             $preparedDataSet = $this->queryExpressionProvider
                 ->apply($preparedDataSet, $item, null, $this->options);
         }
 
         $queryParts = null;
 
-        if (count($this->queryPartsModifier) > 0) {
+        if (count($this->queryModifiers) > 0) {
             $queryParams = new ParametersCollection();
             $queryParts  = new QueryParts();
-            foreach ($this->queryPartsModifier as $modifier) {
+            foreach ($this->queryModifiers as $modifier) {
                 call_user_func($modifier, $queryParts, $queryParams);
             }
 
@@ -395,25 +400,34 @@ class DataSource implements ReadDataProviderInterface
     #[Override]
     public function queryExpressions(): array
     {
-        return $this->queryExpression;
+        return $this->queryExpressions;
     }
 
     #[Override]
     public function withQueryExpression(QueryExpression $queryExpression): static
     {
         /** @phpstan-var static<T> $cloned */
-        $cloned                    = clone $this;
-        $cloned->queryExpression[] = $queryExpression;
+        $cloned                            = clone $this;
+        $cloned->queryExpressionsHistory[] = $cloned->queryExpressions;
+        $cloned->queryExpressions          = [...$cloned->queryExpressions, $queryExpression];
 
         return $cloned;
     }
 
     #[Override]
-    public function withoutQueryExpression(): static
+    public function withoutQueryExpression(bool $undo = false): static
     {
         /** @phpstan-var static<T> $cloned */
-        $cloned                  = clone $this;
-        $cloned->queryExpression = [];
+        $cloned = clone $this;
+
+        if ($undo) {
+            $cloned->queryExpressions = count($cloned->queryExpressionsHistory) > 0
+                ? array_pop($cloned->queryExpressionsHistory)
+                : [];
+        } else {
+            $cloned->queryExpressions        = [];
+            $cloned->queryExpressionsHistory = [];
+        }
 
         return $cloned;
     }
@@ -468,18 +482,27 @@ class DataSource implements ReadDataProviderInterface
     public function withQueryModifier(callable $modifier): static
     {
         /** @phpstan-var static<T> $cloned */
-        $cloned                       = clone $this;
-        $cloned->queryPartsModifier[] = $modifier;
+        $cloned                          = clone $this;
+        $cloned->queryModifiersHistory[] = $cloned->queryModifiers;
+        $cloned->queryModifiers          = [...$cloned->queryModifiers, $modifier];
 
         return $cloned;
     }
 
     #[Override]
-    public function withoutQueryModifier(): static
+    public function withoutQueryModifier(bool $undo = false): static
     {
         /** @phpstan-var static<T> $cloned */
-        $cloned                     = clone $this;
-        $cloned->queryPartsModifier = [];
+        $cloned = clone $this;
+
+        if ($undo) {
+            $cloned->queryModifiers = count($cloned->queryModifiersHistory) > 0
+                ? array_pop($cloned->queryModifiersHistory)
+                : [];
+        } else {
+            $cloned->queryModifiers        = [];
+            $cloned->queryModifiersHistory = [];
+        }
 
         return $cloned;
     }
