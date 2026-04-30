@@ -816,4 +816,77 @@ final class DataSourceTest extends TestCase
 
         self::assertCount(5, $ds->data());
     }
+
+    // -------------------------------------------------------------------------
+    // count / totalCount accuracy with specifications
+    // -------------------------------------------------------------------------
+
+    public function testTotalCountWithoutSpecsStillUsesDbLevelCount(): void
+    {
+        self::assertSame(5, $this->makeOrmDs()->totalCount());
+        self::assertSame(5, $this->makeRawDs()->totalCount());
+    }
+
+    public function testTotalCountWithPhpOnlySpecReflectsSpecFilteredCount(): void
+    {
+        // NameEqualsSpecification has no QueryExpression → DB returns 5, PHP filter keeps 1.
+        $ds = $this->makeOrmDs()->withSpecification(new NameEqualsSpecification('Alice'));
+
+        self::assertSame(1, $ds->totalCount());
+    }
+
+    public function testTotalCountWithPhpOnlySpecOnRawSqlReflectsSpecFilteredCount(): void
+    {
+        $ds = $this->makeRawDs()->withSpecification(new NameEqualsSpecification('Bob'));
+
+        self::assertSame(1, $ds->totalCount());
+    }
+
+    public function testTotalCountWithQeSpecReflectsSpecFilteredCount(): void
+    {
+        // AgeAboveSpecification provides a QueryExpression → DB-level filter + PHP validation.
+        // age > 28: Alice(30), Charlie(35), Dave(40) → 3 items.
+        $ds = $this->makeOrmDs()->withSpecification(new AgeAboveSpecification(28));
+
+        self::assertSame(3, $ds->totalCount());
+    }
+
+    public function testTotalCountWithQeSpecOnRawSqlReflectsSpecFilteredCount(): void
+    {
+        $ds = $this->makeRawDs(
+            'SELECT * FROM test_entity r /*#WHERE#*/ ORDER BY r.id ASC',
+        )->withSpecification(new AgeAboveSpecification(28));
+
+        self::assertSame(3, $ds->totalCount());
+    }
+
+    public function testCountWhenPaginatedWithPhpOnlySpecReflectsSpecFilteredPageCount(): void
+    {
+        // Alice is on page 1 when ordered by id; spec keeps only Alice → 1 item on page.
+        $ds = $this->makeOrmDs()
+            ->withSpecification(new NameEqualsSpecification('Alice'))
+            ->withPagination(1, 3);
+
+        self::assertSame(1, $ds->count());
+    }
+
+    public function testCountWhenPaginatedWithPhpOnlySpecOnPageWithNoMatchReturnsZero(): void
+    {
+        // Page 2 (items 4-5 by id: Dave, Eve) — neither is Alice.
+        $ds = $this->makeOrmDs()
+            ->withSpecification(new NameEqualsSpecification('Alice'))
+            ->withPagination(2, 3);
+
+        self::assertSame(0, $ds->count());
+    }
+
+    public function testTotalCountRemainsAccurateWithMultipleSpecsIncludingPhpOnly(): void
+    {
+        // age > 28 (QE spec) AND name = Alice (PHP-only spec) → 1 item.
+        $ds = $this->makeOrmDs()
+            ->withSpecification(new AgeAboveSpecification(28))
+            ->withSpecification(new NameEqualsSpecification('Alice'));
+
+        self::assertSame(1, $ds->totalCount());
+    }
 }

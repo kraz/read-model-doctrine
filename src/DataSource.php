@@ -49,6 +49,7 @@ use function gettype;
 use function is_callable;
 use function is_object;
 use function is_string;
+use function iterator_count;
 use function iterator_to_array;
 use function parse_str;
 use function sprintf;
@@ -397,6 +398,10 @@ class DataSource implements ReadDataProviderInterface
     public function count(): int
     {
         if ($this->isPaginated()) {
+            if (count($this->specifications) > 0) {
+                return iterator_count($this->getIterator());
+            }
+
             return $this->paginator()?->count() ?? 0;
         }
 
@@ -406,6 +411,10 @@ class DataSource implements ReadDataProviderInterface
     #[Override]
     public function totalCount(): int
     {
+        if (count($this->specifications) > 0) {
+            return iterator_count($this->withoutPagination()->getIterator());
+        }
+
         $query = $this->getQuery();
         if ($query instanceof AbstractRawQuery) {
             return $query->getCount();
