@@ -110,9 +110,9 @@ class DataSource implements ReadDataProviderInterface
     private array $queryModifiers = [];
     /** @phpstan-var array<int, callable[]> */
     private array $queryModifiersHistory = [];
-    /** @phpstan-var SpecificationInterface<T>[] */
+    /** @phpstan-var SpecificationInterface<contravariant T>[] */
     private array $specifications = [];
-    /** @phpstan-var array<int, SpecificationInterface<T>[]> */
+    /** @phpstan-var array<int, SpecificationInterface<contravariant T>[]> */
     private array $specificationsHistory = [];
 
     /**
