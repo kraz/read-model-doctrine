@@ -20,6 +20,7 @@ use Kraz\ReadModel\Query\QueryRequest;
 use Kraz\ReadModel\ReadDataProviderInterface;
 use Kraz\ReadModel\ReadModelDescriptor;
 use Kraz\ReadModel\ReadResponse;
+use Kraz\ReadModel\Specification\SpecificationInterface;
 use Kraz\ReadModelDoctrine\Pagination\DoctrinePaginator;
 use Kraz\ReadModelDoctrine\Pagination\RawSqlPaginator;
 use Kraz\ReadModelDoctrine\Query\AbstractRawQuery;
@@ -108,6 +109,10 @@ class DataSource implements ReadDataProviderInterface
     private array $queryModifiers = [];
     /** @phpstan-var array<int, callable[]> */
     private array $queryModifiersHistory = [];
+    /** @phpstan-var SpecificationInterface<T>[] */
+    private array $specifications = [];
+    /** @phpstan-var array<int, SpecificationInterface<T>[]> */
+    private array $specificationsHistory = [];
 
     /**
      * @phpstan-param string|AbstractRawQuery<T>|RawQueryBuilder<T>|NativeQuery|QueryBuilder $data
@@ -210,7 +215,17 @@ class DataSource implements ReadDataProviderInterface
 
         $preparedDataSet = clone $this->dataSet;
 
-        foreach ($this->queryExpressions as $item) {
+        $specQEs = [];
+        foreach ($this->specifications as $specification) {
+            $qe = $specification->getQueryExpression();
+            if ($qe === null || $qe->isEmpty()) {
+                continue;
+            }
+
+            $specQEs[] = $qe;
+        }
+
+        foreach ([...$specQEs, ...$this->queryExpressions] as $item) {
             $preparedDataSet = $this->queryExpressionProvider
                 ->apply($preparedDataSet, $item, null, $this->options);
         }
@@ -319,20 +334,39 @@ class DataSource implements ReadDataProviderInterface
         $query    = $this->getQuery();
         $iterator = $this->paginator();
         if ($iterator === null) {
-            $iterator = $query->toIterable();
+            $iterator = $query instanceof ORMQuery
+                ? $query->toIterable([], $this->options['hydrator'])
+                : $query->toIterable();
         }
 
-        if ($query instanceof AbstractQuery) {
-            $itemNormalizer = $this->options['item_normalizer'] ?? null;
-            if (is_callable($itemNormalizer)) {
-                foreach ($iterator as $item) {
-                    $item = $itemNormalizer($item);
+        $specifications = $this->specifications;
+        $itemNormalizer = $query instanceof AbstractQuery
+            ? ($this->options['item_normalizer'] ?? null)
+            : null;
 
-                    yield $item;
+        $hasSpecs      = count($specifications) > 0;
+        $hasNormalizer = is_callable($itemNormalizer);
+
+        if ($hasSpecs || $hasNormalizer) {
+            foreach ($iterator as $item) {
+                if ($hasSpecs) {
+                    foreach ($specifications as $specification) {
+                        /** @phpstan-var T $item */
+                        if (! $specification->isSatisfiedBy($item)) {
+                            continue 2;
+                        }
+                    }
                 }
 
-                return;
+                if ($hasNormalizer) {
+                    /** @phpstan-var callable $itemNormalizer */
+                    $item = $itemNormalizer($item);
+                }
+
+                yield $item;
             }
+
+            return;
         }
 
         yield from $iterator;
@@ -502,6 +536,35 @@ class DataSource implements ReadDataProviderInterface
         } else {
             $cloned->queryModifiers        = [];
             $cloned->queryModifiersHistory = [];
+        }
+
+        return $cloned;
+    }
+
+    #[Override]
+    public function withSpecification(SpecificationInterface $specification): static
+    {
+        /** @phpstan-var static<T> $cloned */
+        $cloned                          = clone $this;
+        $cloned->specificationsHistory[] = $cloned->specifications;
+        $cloned->specifications          = [...$cloned->specifications, $specification];
+
+        return $cloned;
+    }
+
+    #[Override]
+    public function withoutSpecification(bool $undo = false): static
+    {
+        /** @phpstan-var static<T> $cloned */
+        $cloned = clone $this;
+
+        if ($undo) {
+            $cloned->specifications = count($cloned->specificationsHistory) > 0
+                ? array_pop($cloned->specificationsHistory)
+                : [];
+        } else {
+            $cloned->specifications        = [];
+            $cloned->specificationsHistory = [];
         }
 
         return $cloned;

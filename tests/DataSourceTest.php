@@ -16,6 +16,8 @@ use Kraz\ReadModelDoctrine\Pagination\DoctrinePaginator;
 use Kraz\ReadModelDoctrine\Pagination\RawSqlPaginator;
 use Kraz\ReadModelDoctrine\Query\AbstractRawQuery;
 use Kraz\ReadModelDoctrine\Query\RawQuery;
+use Kraz\ReadModelDoctrine\Tests\Fixtures\Specifications\AgeAboveSpecification;
+use Kraz\ReadModelDoctrine\Tests\Fixtures\Specifications\NameEqualsSpecification;
 use Kraz\ReadModelDoctrine\Tests\Fixtures\TestEntity;
 use Kraz\ReadModelDoctrine\Tests\Tools\ORMTestKit;
 use Kraz\ReadModelDoctrine\Tools\ParametersCollection;
@@ -663,6 +665,9 @@ final class DataSourceTest extends TestCase
         }));
         self::assertNotSame($ds, $ds->withoutQueryModifier());
         self::assertNotSame($ds, $ds->withoutQueryModifier(true));
+        self::assertNotSame($ds, $ds->withSpecification(new AgeAboveSpecification(25)));
+        self::assertNotSame($ds, $ds->withoutSpecification());
+        self::assertNotSame($ds, $ds->withoutSpecification(true));
     }
 
     public function testWithPaginationDoesNotMutateOriginalPaginationState(): void
@@ -685,5 +690,130 @@ final class DataSourceTest extends TestCase
 
         self::assertNotSame($query, $clone->getQuery());
         self::assertNotSame($paginator, $clone->paginator());
+    }
+
+    // -------------------------------------------------------------------------
+    // Specifications
+    // -------------------------------------------------------------------------
+
+    public function testWithSpecificationFiltersOrmResultsViaIsSatisfiedBy(): void
+    {
+        // NameEqualsSpecification has no QueryExpression → pure PHP-level filtering.
+        $ds = $this->makeOrmDs()->withSpecification(new NameEqualsSpecification('Alice'));
+
+        self::assertSame([1], $this->ids($ds->data()));
+    }
+
+    public function testWithSpecificationFiltersRawSqlResultsViaIsSatisfiedBy(): void
+    {
+        $ds = $this->makeRawDs()->withSpecification(new NameEqualsSpecification('Bob'));
+
+        self::assertSame([2], $this->ids($ds->data()));
+    }
+
+    public function testWithSpecificationWithQueryExpressionFiltersAtDbLevel(): void
+    {
+        // AgeAboveSpecification provides a QueryExpression that filters at DB level,
+        // and also validates each item via isSatisfiedBy().
+        // age > 28: Alice(30), Charlie(35), Dave(40), Eve(28) → ids 1, 3, 4
+        $ds = $this->makeOrmDs()->withSpecification(new AgeAboveSpecification(28));
+
+        self::assertSame([1, 3, 4], $this->ids($ds->data()));
+    }
+
+    public function testWithSpecificationWithQueryExpressionFiltersRawSql(): void
+    {
+        $ds = $this->makeRawDs(
+            'SELECT * FROM test_entity r /*#WHERE#*/ ORDER BY r.id ASC',
+        )->withSpecification(new AgeAboveSpecification(28));
+
+        self::assertSame([1, 3, 4], $this->ids($ds->data()));
+    }
+
+    public function testMultipleSpecificationsAreCombinedWithAnd(): void
+    {
+        $ds = $this->makeOrmDs()
+            ->withSpecification(new AgeAboveSpecification(28))
+            ->withSpecification(new NameEqualsSpecification('Alice'));
+
+        // age > 28 AND name = Alice → only Alice (id 1)
+        self::assertSame([1], $this->ids($ds->data()));
+    }
+
+    public function testWithSpecificationDoesNotMutateOriginal(): void
+    {
+        $ds = $this->makeOrmDs();
+        $ds->withSpecification(new AgeAboveSpecification(28));
+
+        self::assertCount(5, $ds->data());
+    }
+
+    public function testWithSpecificationCombinedWithQueryExpression(): void
+    {
+        // QE filters by department=eng (ids 1, 2), spec filters name=Alice → id 1
+        $ds = $this->makeOrmDs();
+        $qe = QueryExpression::create()->andWhere($ds->expr()->equalTo('department', 'eng'));
+        $ds = $ds->withQueryExpression($qe)->withSpecification(new NameEqualsSpecification('Alice'));
+
+        self::assertSame([1], $this->ids($ds->data()));
+    }
+
+    public function testInvertedSpecificationFiltersOppositeItems(): void
+    {
+        // Not Alice → ids 2, 3, 4, 5
+        $inverted = (new NameEqualsSpecification('Alice'))->invert();
+        $ds       = $this->makeOrmDs()->withSpecification($inverted);
+
+        self::assertSame([2, 3, 4, 5], $this->ids($ds->data()));
+    }
+
+    public function testWithSpecificationWorksWithPagination(): void
+    {
+        // age > 28: ids 1, 3, 4 (3 items). Page 1, 2 per page → ids 1, 3
+        $ds = $this->makeOrmDs()
+            ->withSpecification(new AgeAboveSpecification(28))
+            ->withPagination(1, 2);
+
+        self::assertTrue($ds->isPaginated());
+        self::assertSame([1, 3], $this->ids($ds->data()));
+    }
+
+    public function testWithoutSpecificationUndoRestoresPreviousStack(): void
+    {
+        $ds = $this->makeOrmDs()
+            ->withSpecification(new AgeAboveSpecification(28))
+            ->withSpecification(new NameEqualsSpecification('Alice'));
+
+        $undone = $ds->withoutSpecification(true);
+
+        // After undo only AgeAboveSpecification remains: ids 1, 3, 4
+        self::assertSame([1, 3, 4], $this->ids($undone->data()));
+    }
+
+    public function testWithoutSpecificationUndoOnEmptyIsNoOp(): void
+    {
+        $ds = $this->makeOrmDs()->withoutSpecification(true);
+
+        self::assertCount(5, $ds->data());
+    }
+
+    public function testWithoutSpecificationClearsAllAndHistory(): void
+    {
+        $ds = $this->makeOrmDs()
+            ->withSpecification(new AgeAboveSpecification(28))
+            ->withSpecification(new NameEqualsSpecification('Alice'))
+            ->withoutSpecification();
+
+        self::assertCount(5, $ds->data());
+    }
+
+    public function testWithoutSpecificationClearAlsoClearsHistorySoUndoIsNoOp(): void
+    {
+        $ds = $this->makeOrmDs()
+            ->withSpecification(new AgeAboveSpecification(28))
+            ->withoutSpecification()
+            ->withoutSpecification(true);
+
+        self::assertCount(5, $ds->data());
     }
 }
