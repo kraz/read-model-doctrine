@@ -9,7 +9,7 @@ use Doctrine\DBAL\Query\QueryBuilder;
 
 /**
  * @phpstan-import-type WrapperParameterTypeArray from AbstractRawQuery
- * @phpstan-template T of object|array<string, mixed>
+ * @phpstan-template-covariant T of object|array<string, mixed>
  */
 class RawQueryBuilder extends QueryBuilder
 {

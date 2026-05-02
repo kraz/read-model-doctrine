@@ -55,13 +55,9 @@ final class DataSourceBuilderTest extends TestCase
         }
     }
 
-    /** @phpstan-return DataSourceBuilder<array<string, mixed>> */
     private function makeBuilder(): DataSourceBuilder
     {
-        /** @phpstan-var DataSourceBuilder<array<string, mixed>> $builder */
-        $builder = new DataSourceBuilder();
-
-        return $builder;
+        return new DataSourceBuilder();
     }
 
     private function makeSql(string $alias = 'r'): string

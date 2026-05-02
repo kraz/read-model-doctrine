@@ -8,7 +8,7 @@ use Kraz\ReadModel\DataSourceReadDataProvider;
 use Kraz\ReadModelDoctrine\Query\AbstractRawQuery;
 use LogicException;
 
-/** @phpstan-template T of object|array<string, mixed> */
+/** @phpstan-template-covariant T of object|array<string, mixed> */
 trait DoctrineReadDataProvider
 {
     /** @use DataSourceReadDataProvider<T> */

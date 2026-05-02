@@ -81,7 +81,7 @@ use function sprintf;
  *     use_count_cache: bool,
  * }
  * @phpstan-type DataSourceOptionsWrapper = DataSourceOptions|array<never, never>
- * @phpstan-template T of object|array<string, mixed>
+ * @phpstan-template-covariant T of object|array<string, mixed>
  * @phpstan-implements ReadDataProviderInterface<T>
  */
 class DataSource implements ReadDataProviderInterface
