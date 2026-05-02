@@ -384,6 +384,77 @@ final class DataSourceBuilderTest extends TestCase
     }
 
     // -------------------------------------------------------------------------
+    // withoutQueryExpression — clear and undo
+    // -------------------------------------------------------------------------
+
+    public function testWithoutQueryExpressionReturnsNewBuilderInstance(): void
+    {
+        $builder = $this->makeBuilder()->withQueryExpression(QueryExpression::create());
+
+        self::assertNotSame($builder, $builder->withoutQueryExpression());
+    }
+
+    public function testWithoutQueryExpressionClearsFilterOnCreate(): void
+    {
+        $qe = QueryExpression::create()->andWhere(FilterExpression::create()->equalTo('name', 'Alice'));
+        $ds = $this->makeBuilder()
+            ->withData($this->makeSql())
+            ->withQueryExpression($qe)
+            ->withoutQueryExpression()
+            ->create($this->connection);
+
+        self::assertCount(5, $ds->data());
+    }
+
+    public function testWithoutQueryExpressionDoesNotMutateOriginalBuilder(): void
+    {
+        $qe      = QueryExpression::create()->andWhere(FilterExpression::create()->equalTo('name', 'Alice'));
+        $builder = $this->makeBuilder()->withData($this->makeSql())->withQueryExpression($qe);
+        $builder->withoutQueryExpression();
+
+        // Original still has the filter.
+        self::assertSame([1], $this->ids($builder->create($this->connection)->data()));
+    }
+
+    public function testWithoutQueryExpressionUndoRestoresPreviousExpression(): void
+    {
+        // qe1 filters eng; qe2 replaces it to filter Alice; undo → back to qe1 (eng).
+        $qe1 = QueryExpression::create()->andWhere(FilterExpression::create()->equalTo('department', 'eng'));
+        $qe2 = QueryExpression::create()->andWhere(FilterExpression::create()->equalTo('name', 'Alice'));
+        $ds  = $this->makeBuilder()
+            ->withData($this->makeSql())
+            ->withQueryExpression($qe1)
+            ->withQueryExpression($qe2)
+            ->withoutQueryExpression(true)
+            ->create($this->connection);
+
+        self::assertSame([1, 2], $this->ids($ds->data()));
+    }
+
+    public function testWithoutQueryExpressionUndoOnEmptyIsNoOp(): void
+    {
+        $ds = $this->makeBuilder()
+            ->withData($this->makeSql())
+            ->withoutQueryExpression(true)
+            ->create($this->connection);
+
+        self::assertCount(5, $ds->data());
+    }
+
+    public function testWithoutQueryExpressionClearAlsoClearsHistorySoUndoIsNoOp(): void
+    {
+        $qe = QueryExpression::create()->andWhere(FilterExpression::create()->equalTo('name', 'Alice'));
+        $ds = $this->makeBuilder()
+            ->withData($this->makeSql())
+            ->withQueryExpression($qe)
+            ->withoutQueryExpression()      // clears expressions and history
+            ->withoutQueryExpression(true)  // undo on empty history → no-op
+            ->create($this->connection);
+
+        self::assertCount(5, $ds->data());
+    }
+
+    // -------------------------------------------------------------------------
     // withQueryModifier — accumulation and application
     // -------------------------------------------------------------------------
 
@@ -411,7 +482,7 @@ final class DataSourceBuilderTest extends TestCase
             ->withQueryModifier(static function (QueryParts $qp, ParametersCollection $params): void {
                 $qp->andWhere('age > :age');
                 $params->setParameter('age', 26);
-            })
+            }, true)
             ->create($this->connection);
 
         // Both modifiers applied: eng AND age > 26 → only Alice (age 30)
@@ -432,6 +503,90 @@ final class DataSourceBuilderTest extends TestCase
 
         self::assertSame([1, 2], $this->ids($branch1->create($this->connection)->data()));
         self::assertSame([3, 4], $this->ids($branch2->create($this->connection)->data()));
+    }
+
+    // -------------------------------------------------------------------------
+    // withoutQueryModifier — clear and undo
+    // -------------------------------------------------------------------------
+
+    public function testWithoutQueryModifierReturnsNewBuilderInstance(): void
+    {
+        $builder = $this->makeBuilder()->withQueryModifier(static function (): void {
+        });
+
+        self::assertNotSame($builder, $builder->withoutQueryModifier());
+    }
+
+    public function testWithoutQueryModifierClearsModifierOnCreate(): void
+    {
+        $ds = $this->makeBuilder()
+            ->withData('SELECT * FROM test_entity WHERE 1=1 ORDER BY id ASC')
+            ->withQueryModifier(static function (QueryParts $qp, ParametersCollection $params): void {
+                $qp->andWhere('department = :dept');
+                $params->setParameter('dept', 'eng');
+            })
+            ->withoutQueryModifier()
+            ->create($this->connection);
+
+        self::assertCount(5, $ds->data());
+    }
+
+    public function testWithoutQueryModifierDoesNotMutateOriginalBuilder(): void
+    {
+        $builder = $this->makeBuilder()
+            ->withData('SELECT * FROM test_entity WHERE 1=1 ORDER BY id ASC')
+            ->withQueryModifier(static function (QueryParts $qp, ParametersCollection $params): void {
+                $qp->andWhere('department = :dept');
+                $params->setParameter('dept', 'eng');
+            });
+        $builder->withoutQueryModifier();
+
+        // Original still has the modifier.
+        self::assertSame([1, 2], $this->ids($builder->create($this->connection)->data()));
+    }
+
+    public function testWithoutQueryModifierUndoRestoresPreviousModifier(): void
+    {
+        // First modifier filters eng; second replaces it with sales; undo → back to eng.
+        $ds = $this->makeBuilder()
+            ->withData('SELECT * FROM test_entity WHERE 1=1 ORDER BY id ASC')
+            ->withQueryModifier(static function (QueryParts $qp, ParametersCollection $params): void {
+                $qp->andWhere('department = :dept');
+                $params->setParameter('dept', 'eng');
+            })
+            ->withQueryModifier(static function (QueryParts $qp, ParametersCollection $params): void {
+                $qp->andWhere('department = :dept');
+                $params->setParameter('dept', 'sales');
+            })
+            ->withoutQueryModifier(true)
+            ->create($this->connection);
+
+        self::assertSame([1, 2], $this->ids($ds->data()));
+    }
+
+    public function testWithoutQueryModifierUndoOnEmptyIsNoOp(): void
+    {
+        $ds = $this->makeBuilder()
+            ->withData('SELECT * FROM test_entity WHERE 1=1 ORDER BY id ASC')
+            ->withoutQueryModifier(true)
+            ->create($this->connection);
+
+        self::assertCount(5, $ds->data());
+    }
+
+    public function testWithoutQueryModifierClearAlsoClearsHistorySoUndoIsNoOp(): void
+    {
+        $ds = $this->makeBuilder()
+            ->withData('SELECT * FROM test_entity WHERE 1=1 ORDER BY id ASC')
+            ->withQueryModifier(static function (QueryParts $qp, ParametersCollection $params): void {
+                $qp->andWhere('department = :dept');
+                $params->setParameter('dept', 'eng');
+            })
+            ->withoutQueryModifier()      // clears modifiers and history
+            ->withoutQueryModifier(true)  // undo on empty history → no-op
+            ->create($this->connection);
+
+        self::assertCount(5, $ds->data());
     }
 
     // -------------------------------------------------------------------------

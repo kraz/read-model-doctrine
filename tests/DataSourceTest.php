@@ -198,7 +198,7 @@ final class DataSourceTest extends TestCase
         $ds  = $this->makeOrmDs();
         $qe1 = QueryExpression::create();
         $qe2 = QueryExpression::create();
-        $ds  = $ds->withQueryExpression($qe1)->withQueryExpression($qe2);
+        $ds  = $ds->withQueryExpression($qe1)->withQueryExpression($qe2, true);
 
         self::assertSame([$qe1, $qe2], $ds->queryExpressions());
     }
@@ -209,7 +209,7 @@ final class DataSourceTest extends TestCase
         $qe1 = QueryExpression::create();
         $qe2 = QueryExpression::create();
 
-        $stacked = $ds->withQueryExpression($qe1)->withQueryExpression($qe2);
+        $stacked = $ds->withQueryExpression($qe1)->withQueryExpression($qe2, true);
         $back    = $stacked->withoutQueryExpression(true);
 
         self::assertSame([$qe1], $back->queryExpressions());
@@ -228,7 +228,7 @@ final class DataSourceTest extends TestCase
         $qe1 = QueryExpression::create();
         $qe2 = QueryExpression::create();
 
-        $stacked = $ds->withQueryExpression($qe1)->withQueryExpression($qe2);
+        $stacked = $ds->withQueryExpression($qe1)->withQueryExpression($qe2, true);
         $cleared = $stacked->withoutQueryExpression();
 
         self::assertSame([], $cleared->queryExpressions());
@@ -288,7 +288,7 @@ final class DataSourceTest extends TestCase
         $qe2 = QueryExpression::create()->andWhere(QueryExpression::create()->expr()->equalTo('name', 'Bob'));
 
         $branchA = $ds->withQueryExpression($qe1);
-        $branchB = $branchA->withQueryExpression($qe2);
+        $branchB = $branchA->withQueryExpression($qe2, true);
 
         // Undoing on branchA should not affect branchB
         $branchA = $branchA->withoutQueryExpression(true);
@@ -337,7 +337,7 @@ final class DataSourceTest extends TestCase
             $params->setParameter('age', 26);
         };
 
-        $stacked = $ds->withQueryModifier($mod1)->withQueryModifier($mod2);
+        $stacked = $ds->withQueryModifier($mod1)->withQueryModifier($mod2, true);
         $back    = $stacked->withoutQueryModifier(true);
 
         // After undo, only mod1 is active: department = eng (ids 1, 2)
@@ -734,7 +734,7 @@ final class DataSourceTest extends TestCase
     {
         $ds = $this->makeOrmDs()
             ->withSpecification(new AgeAboveSpecification(28))
-            ->withSpecification(new NameEqualsSpecification('Alice'));
+            ->withSpecification(new NameEqualsSpecification('Alice'), true);
 
         // age > 28 AND name = Alice → only Alice (id 1)
         self::assertSame([1], $this->ids($ds->data()));
@@ -782,7 +782,7 @@ final class DataSourceTest extends TestCase
     {
         $ds = $this->makeOrmDs()
             ->withSpecification(new AgeAboveSpecification(28))
-            ->withSpecification(new NameEqualsSpecification('Alice'));
+            ->withSpecification(new NameEqualsSpecification('Alice'), true);
 
         $undone = $ds->withoutSpecification(true);
 
@@ -801,7 +801,7 @@ final class DataSourceTest extends TestCase
     {
         $ds = $this->makeOrmDs()
             ->withSpecification(new AgeAboveSpecification(28))
-            ->withSpecification(new NameEqualsSpecification('Alice'))
+            ->withSpecification(new NameEqualsSpecification('Alice'), true)
             ->withoutSpecification();
 
         self::assertCount(5, $ds->data());
@@ -885,7 +885,7 @@ final class DataSourceTest extends TestCase
         // age > 28 (QE spec) AND name = Alice (PHP-only spec) → 1 item.
         $ds = $this->makeOrmDs()
             ->withSpecification(new AgeAboveSpecification(28))
-            ->withSpecification(new NameEqualsSpecification('Alice'));
+            ->withSpecification(new NameEqualsSpecification('Alice'), true);
 
         self::assertSame(1, $ds->totalCount());
     }

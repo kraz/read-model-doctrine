@@ -20,13 +20,18 @@ use Kraz\ReadModelDoctrine\Query\RawNativeQuery;
 use Kraz\ReadModelDoctrine\Query\RawQuery;
 use Kraz\ReadModelDoctrine\Query\RawQueryBuilder;
 
+use function array_pop;
+use function count;
 use function is_callable;
 
 /** @phpstan-import-type DataSourceOptionsWrapper from DataSource */
 class DataSourceBuilder
 {
-    private mixed $data                                   = null;
-    private QueryExpression|null $queryExpression         = null;
+    private mixed $data = null;
+    /** @phpstan-var QueryExpression[] */
+    private array $queryExpressions = [];
+    /** @phpstan-var array<int, QueryExpression[]> */
+    private array $queryExpressionsHistory                = [];
     private QueryRequest|null $queryRequest               = null;
     private string|null $rootAlias                        = null;
     private string|null $rootIdentifier                   = null;
@@ -34,7 +39,9 @@ class DataSourceBuilder
     private ReadModelDescriptor|null $readModelDescriptor = null;
     /** @phpstan-var list<callable> */
     private array $queryModifier = [];
-    private mixed $denormalizer  = null;
+    /** @phpstan-var array<int, list<callable>> */
+    private array $queryModifierHistory = [];
+    private mixed $denormalizer         = null;
     /** @var array<string, string>|null */
     private array|null $queryExpressionFieldMapping = null;
 
@@ -58,24 +65,24 @@ class DataSourceBuilder
 
     public function andWhere(FilterExpression ...$expr): self
     {
-        $this->queryExpression ??= QueryExpression::create();
-        $this->queryExpression   = $this->queryExpression->andWhere(...$expr);
+        $current                   = $this->queryExpressions[0] ?? QueryExpression::create();
+        $this->queryExpressions[0] = $current->andWhere(...$expr);
 
         return $this;
     }
 
     public function orWhere(FilterExpression ...$expr): self
     {
-        $this->queryExpression ??= QueryExpression::create();
-        $this->queryExpression   = $this->queryExpression->orWhere(...$expr);
+        $current                   = $this->queryExpressions[0] ?? QueryExpression::create();
+        $this->queryExpressions[0] = $current->orWhere(...$expr);
 
         return $this;
     }
 
     public function sortBy(string $field, string $dir = SortExpression::DIR_ASC): self
     {
-        $this->queryExpression ??= QueryExpression::create();
-        $this->queryExpression   = $this->queryExpression->sortBy($field, $dir);
+        $current                   = $this->queryExpressions[0] ?? QueryExpression::create();
+        $this->queryExpressions[0] = $current->sortBy($field, $dir);
 
         return $this;
     }
@@ -93,10 +100,29 @@ class DataSourceBuilder
         return $clone;
     }
 
-    public function withQueryExpression(QueryExpression $queryExpression): static
+    public function withQueryExpression(QueryExpression $queryExpression, bool $append = false): static
     {
-        $clone                  = clone $this;
-        $clone->queryExpression = $queryExpression;
+        $clone                            = clone $this;
+        $clone->queryExpressionsHistory[] = $clone->queryExpressions;
+        $clone->queryExpressions          = $append
+            ? [...$clone->queryExpressions, $queryExpression]
+            : [$queryExpression];
+
+        return $clone;
+    }
+
+    public function withoutQueryExpression(bool $undo = false): static
+    {
+        $clone = clone $this;
+
+        if ($undo) {
+            $clone->queryExpressions = count($clone->queryExpressionsHistory) > 0
+                ? array_pop($clone->queryExpressionsHistory)
+                : [];
+        } else {
+            $clone->queryExpressions        = [];
+            $clone->queryExpressionsHistory = [];
+        }
 
         return $clone;
     }
@@ -110,10 +136,29 @@ class DataSourceBuilder
         return $clone;
     }
 
-    public function withQueryModifier(callable $modifier): static
+    public function withQueryModifier(callable $modifier, bool $append = false): static
     {
-        $clone                  = clone $this;
-        $clone->queryModifier[] = $modifier;
+        $clone                         = clone $this;
+        $clone->queryModifierHistory[] = $clone->queryModifier;
+        $clone->queryModifier          = $append
+            ? [...$clone->queryModifier, $modifier]
+            : [$modifier];
+
+        return $clone;
+    }
+
+    public function withoutQueryModifier(bool $undo = false): static
+    {
+        $clone = clone $this;
+
+        if ($undo) {
+            $clone->queryModifier = count($clone->queryModifierHistory) > 0
+                ? array_pop($clone->queryModifierHistory)
+                : [];
+        } else {
+            $clone->queryModifier        = [];
+            $clone->queryModifierHistory = [];
+        }
 
         return $clone;
     }
@@ -221,8 +266,8 @@ class DataSourceBuilder
             $dataSource = $dataSource->withQueryRequest($this->queryRequest);
         }
 
-        if ($this->queryExpression !== null) {
-            $dataSource = $dataSource->withQueryExpression($this->queryExpression);
+        foreach ($this->queryExpressions as $qe) {
+            $dataSource = $dataSource->withQueryExpression($qe, true);
         }
 
         foreach ($this->queryModifier as $modifier) {
@@ -230,7 +275,7 @@ class DataSourceBuilder
                 continue;
             }
 
-            $dataSource = $dataSource->withQueryModifier($modifier);
+            $dataSource = $dataSource->withQueryModifier($modifier, true);
         }
 
         return $dataSource;

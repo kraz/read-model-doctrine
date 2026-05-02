@@ -447,12 +447,14 @@ class DataSource implements ReadDataProviderInterface
     }
 
     #[Override]
-    public function withQueryExpression(QueryExpression $queryExpression): static
+    public function withQueryExpression(QueryExpression $queryExpression, bool $append = false): static
     {
         /** @phpstan-var static<T> $cloned */
         $cloned                            = clone $this;
         $cloned->queryExpressionsHistory[] = $cloned->queryExpressions;
-        $cloned->queryExpressions          = [...$cloned->queryExpressions, $queryExpression];
+        $cloned->queryExpressions          = $append
+            ? [...$cloned->queryExpressions, $queryExpression]
+            : [$queryExpression];
 
         return $cloned;
     }
@@ -522,12 +524,14 @@ class DataSource implements ReadDataProviderInterface
     }
 
     #[Override]
-    public function withQueryModifier(callable $modifier): static
+    public function withQueryModifier(callable $modifier, bool $append = false): static
     {
         /** @phpstan-var static<T> $cloned */
         $cloned                          = clone $this;
         $cloned->queryModifiersHistory[] = $cloned->queryModifiers;
-        $cloned->queryModifiers          = [...$cloned->queryModifiers, $modifier];
+        $cloned->queryModifiers          = $append
+            ? [...$cloned->queryModifiers, $modifier]
+            : [$modifier];
 
         return $cloned;
     }
@@ -551,12 +555,14 @@ class DataSource implements ReadDataProviderInterface
     }
 
     #[Override]
-    public function withSpecification(SpecificationInterface $specification): static
+    public function withSpecification(SpecificationInterface $specification, bool $append = false): static
     {
         /** @phpstan-var static<T> $cloned */
         $cloned                          = clone $this;
         $cloned->specificationsHistory[] = $cloned->specifications;
-        $cloned->specifications          = [...$cloned->specifications, $specification];
+        $cloned->specifications          = $append
+            ? [...$cloned->specifications, $specification]
+            : [$specification];
 
         return $cloned;
     }
