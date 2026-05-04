@@ -47,7 +47,7 @@ use function str_starts_with;
 /**
  * @phpstan-import-type FilterCompositeArrayItems from FilterExpression
  * @phpstan-type QueryExpressionHelperOptions = array{
- *     root_identifier?: string,
+ *     root_identifier?: string|string[],
  *     root_alias?: string|string[],
  *     quoteTableAlias?: bool,
  *     quoteFieldNames?: bool,

@@ -12,15 +12,14 @@ use Doctrine\ORM\Query as ORMQuery;
 use Doctrine\ORM\QueryBuilder;
 use Doctrine\ORM\Tools\Pagination\Paginator;
 use InvalidArgumentException;
-use Kraz\ReadModel\BasicReadDataProvider;
 use Kraz\ReadModel\Pagination\PaginatorInterface;
-use Kraz\ReadModel\Query\QueryExpression;
 use Kraz\ReadModel\Query\QueryExpressionProviderInterface;
-use Kraz\ReadModel\Query\QueryRequest;
+use Kraz\ReadModel\ReadDataProviderComposition;
+use Kraz\ReadModel\ReadDataProviderCompositionInterface;
 use Kraz\ReadModel\ReadDataProviderInterface;
 use Kraz\ReadModel\ReadModelDescriptor;
+use Kraz\ReadModel\ReadModelDescriptorFactoryInterface;
 use Kraz\ReadModel\ReadResponse;
-use Kraz\ReadModel\Specification\SpecificationInterface;
 use Kraz\ReadModelDoctrine\Pagination\DoctrinePaginator;
 use Kraz\ReadModelDoctrine\Pagination\RawSqlPaginator;
 use Kraz\ReadModelDoctrine\Query\AbstractRawQuery;
@@ -39,7 +38,6 @@ use Symfony\Component\HttpFoundation\Request as SymfonyRequest;
 use Traversable;
 
 use function array_key_exists;
-use function array_pop;
 use function array_replace_recursive;
 use function call_user_func;
 use function class_exists;
@@ -86,8 +84,8 @@ use function sprintf;
  */
 class DataSource implements ReadDataProviderInterface
 {
-    /** @use BasicReadDataProvider<T> */
-    use BasicReadDataProvider;
+    /** @use ReadDataProviderComposition<T> */
+    use ReadDataProviderComposition;
 
     public const int DEFAULT_HYDRATOR = AbstractQuery::HYDRATE_ARRAY;
 
@@ -95,25 +93,10 @@ class DataSource implements ReadDataProviderInterface
     private array $options;
     /** @phpstan-var QueryBuilder|AbstractRawQuery<T> */
     private QueryBuilder|AbstractRawQuery $dataSet;
-    private int|null $page         = null;
-    private int|null $itemsPerPage = null;
-    /** @phpstan-var QueryExpression[] */
-    private array $queryExpressions = [];
-    /** @phpstan-var array<int, QueryExpression[]> */
-    private array $queryExpressionsHistory = [];
     /** @phpstan-var ORMQuery|AbstractRawQuery<T> */
     private ORMQuery|AbstractRawQuery|null $query = null;
     /** @phpstan-var PaginatorInterface<T>|null */
     private PaginatorInterface|null $paginator = null;
-    private QueryExpressionProviderInterface $queryExpressionProvider;
-    /** @phpstan-var callable[] */
-    private array $queryModifiers = [];
-    /** @phpstan-var array<int, callable[]> */
-    private array $queryModifiersHistory = [];
-    /** @phpstan-var SpecificationInterface<contravariant T>[] */
-    private array $specifications = [];
-    /** @phpstan-var array<int, SpecificationInterface<contravariant T>[]> */
-    private array $specificationsHistory = [];
 
     /**
      * @phpstan-param string|AbstractRawQuery<T>|RawQueryBuilder<T>|NativeQuery|QueryBuilder $data
@@ -195,16 +178,22 @@ class DataSource implements ReadDataProviderInterface
             $dataSet = clone $data;
         }
 
-        if ($queryExpressionProvider === null) {
-            $queryExpressionProvider = new QueryExpressionProvider(new ReadModelDescriptorFactory());
-        }
-
         if ($dataSet === null) {
             throw new RuntimeException(sprintf('Unsupported data type: %s', is_object($data) ? $data::class : gettype($data)));
         }
 
         $this->dataSet                 = $dataSet;
         $this->queryExpressionProvider = $queryExpressionProvider;
+    }
+
+    protected function createDefaultDescriptorFactory(): ReadModelDescriptorFactoryInterface
+    {
+        return new ReadModelDescriptorFactory();
+    }
+
+    protected function createDefaultQueryExpressionProvider(ReadModelDescriptorFactoryInterface $factory): QueryExpressionProviderInterface
+    {
+        return new QueryExpressionProvider($factory);
     }
 
     /** @return AbstractRawQuery<T>|ORMQuery */
@@ -226,9 +215,9 @@ class DataSource implements ReadDataProviderInterface
             $specQEs[] = $qe;
         }
 
+        $queryExpressionProvider = $this->getOrCreateQueryExpressionProvider();
         foreach ([...$specQEs, ...$this->queryExpressions] as $item) {
-            $preparedDataSet = $this->queryExpressionProvider
-                ->apply($preparedDataSet, $item, null, $this->options);
+            $preparedDataSet = $queryExpressionProvider->apply($preparedDataSet, $item, null, $this->options);
         }
 
         $queryParts = null;
@@ -245,9 +234,16 @@ class DataSource implements ReadDataProviderInterface
             }
         }
 
-        if ($this->page !== null && $this->itemsPerPage !== null) {
-            $firstResult = ($this->page - 1) * $this->itemsPerPage;
-            $maxResults  = $this->itemsPerPage;
+        if ($this->pagination === null) {
+            $page         = null;
+            $itemsPerPage = null;
+        } else {
+            [$page, $itemsPerPage] = $this->pagination;
+        }
+
+        if ($page !== null && $itemsPerPage !== null) {
+            $firstResult = ($page - 1) * $itemsPerPage;
+            $maxResults  = $itemsPerPage;
         } else {
             $firstResult = null;
             $maxResults  = null;
@@ -296,7 +292,12 @@ class DataSource implements ReadDataProviderInterface
             return $this->paginator;
         }
 
-        if ($this->page === null || $this->itemsPerPage === null) {
+        if ($this->pagination === null) {
+            return null;
+        }
+
+        [$page, $itemsPerPage] = $this->pagination;
+        if ($page === null || $itemsPerPage === null) {
             return null;
         }
 
@@ -437,152 +438,13 @@ class DataSource implements ReadDataProviderInterface
     #[Override]
     public function isPaginated(): bool
     {
-        return $this->page > 0 && $this->itemsPerPage > 0;
-    }
-
-    #[Override]
-    public function queryExpressions(): array
-    {
-        return $this->queryExpressions;
-    }
-
-    #[Override]
-    public function withQueryExpression(QueryExpression $queryExpression, bool $append = false): static
-    {
-        /** @phpstan-var static<T> $cloned */
-        $cloned                            = clone $this;
-        $cloned->queryExpressionsHistory[] = $cloned->queryExpressions;
-        $cloned->queryExpressions          = $append
-            ? [...$cloned->queryExpressions, $queryExpression]
-            : [$queryExpression];
-
-        return $cloned;
-    }
-
-    #[Override]
-    public function withoutQueryExpression(bool $undo = false): static
-    {
-        /** @phpstan-var static<T> $cloned */
-        $cloned = clone $this;
-
-        if ($undo) {
-            $cloned->queryExpressions = count($cloned->queryExpressionsHistory) > 0
-                ? array_pop($cloned->queryExpressionsHistory)
-                : [];
-        } else {
-            $cloned->queryExpressions        = [];
-            $cloned->queryExpressionsHistory = [];
+        if ($this->pagination === null) {
+            return false;
         }
 
-        return $cloned;
-    }
+        [$page, $itemsPerPage] = $this->pagination;
 
-    #[Override]
-    public function withPagination(int $page, int $itemsPerPage): static
-    {
-        if ($itemsPerPage <= 0) {
-            return $this->withoutPagination();
-        }
-
-        if ($page <= 0) {
-            throw new InvalidArgumentException(sprintf('Expected a positive integer. Got: %d', $page));
-        }
-
-        /** @phpstan-var static<T> $cloned */
-        $cloned               = clone $this;
-        $cloned->page         = $page;
-        $cloned->itemsPerPage = $itemsPerPage;
-
-        return $cloned;
-    }
-
-    #[Override]
-    public function withoutPagination(): static
-    {
-        /** @phpstan-var static<T> $cloned */
-        $cloned               = clone $this;
-        $cloned->page         = null;
-        $cloned->itemsPerPage = null;
-
-        return $cloned;
-    }
-
-    #[Override]
-    public function withQueryRequest(QueryRequest $queryRequest): static
-    {
-        /** @phpstan-var static<T> $cloned */
-        $cloned = clone $this;
-        if ($queryRequest->getQuery() !== null) {
-            $cloned = $cloned->withQueryExpression($queryRequest->getQuery());
-        }
-
-        if ($queryRequest->getPage() !== null && $queryRequest->getItemsPerPage() !== null) {
-            $cloned = $cloned->withPagination($queryRequest->getPage(), $queryRequest->getItemsPerPage());
-        }
-
-        return $cloned;
-    }
-
-    #[Override]
-    public function withQueryModifier(callable $modifier, bool $append = false): static
-    {
-        /** @phpstan-var static<T> $cloned */
-        $cloned                          = clone $this;
-        $cloned->queryModifiersHistory[] = $cloned->queryModifiers;
-        $cloned->queryModifiers          = $append
-            ? [...$cloned->queryModifiers, $modifier]
-            : [$modifier];
-
-        return $cloned;
-    }
-
-    #[Override]
-    public function withoutQueryModifier(bool $undo = false): static
-    {
-        /** @phpstan-var static<T> $cloned */
-        $cloned = clone $this;
-
-        if ($undo) {
-            $cloned->queryModifiers = count($cloned->queryModifiersHistory) > 0
-                ? array_pop($cloned->queryModifiersHistory)
-                : [];
-        } else {
-            $cloned->queryModifiers        = [];
-            $cloned->queryModifiersHistory = [];
-        }
-
-        return $cloned;
-    }
-
-    #[Override]
-    public function withSpecification(SpecificationInterface $specification, bool $append = false): static
-    {
-        /** @phpstan-var static<T> $cloned */
-        $cloned                          = clone $this;
-        $cloned->specificationsHistory[] = $cloned->specifications;
-        $cloned->specifications          = $append
-            ? [...$cloned->specifications, $specification]
-            : [$specification];
-
-        return $cloned;
-    }
-
-    #[Override]
-    public function withoutSpecification(bool $undo = false): static
-    {
-        /** @phpstan-var static<T> $cloned */
-        $cloned = clone $this;
-
-        if ($undo) {
-            $cloned->specifications = count($cloned->specificationsHistory) > 0
-                ? array_pop($cloned->specificationsHistory)
-                : [];
-        } else {
-            $cloned->specifications        = [];
-            $cloned->specificationsHistory = [];
-        }
-
-        return $cloned;
+        return $page > 0 && $itemsPerPage > 0;
     }
 
     /**
@@ -591,6 +453,23 @@ class DataSource implements ReadDataProviderInterface
      */
     #[Override]
     public function handleRequest(object $request, array $fieldsOperator = [], array $fieldsIgnoreCase = []): static
+    {
+        /** @phpstan-var static<T> $ds */
+        $ds = static::applyRequestTo($this, $request, $fieldsOperator, $fieldsIgnoreCase);
+
+        return $ds;
+    }
+
+    /**
+     * @phpstan-param J $target
+     * @phpstan-param array<string, string> $fieldsOperator
+     * @phpstan-param array<string, bool> $fieldsIgnoreCase
+     *
+     * @phpstan-return J
+     *
+     * @phpstan-template J of ReadDataProviderCompositionInterface<object|array<string, mixed>>
+     */
+    public static function applyRequestTo(ReadDataProviderCompositionInterface $target, object $request, array $fieldsOperator = [], array $fieldsIgnoreCase = []): ReadDataProviderCompositionInterface
     {
         if (class_exists(SymfonyRequest::class) && $request instanceof SymfonyRequest) {
             if (! class_exists(Psr17Factory::class)) {
@@ -605,8 +484,13 @@ class DataSource implements ReadDataProviderInterface
         if ($request instanceof RequestInterface) {
             parse_str($request->getUri()->getQuery(), $input);
 
-            /** @phpstan-ignore argument.type */
-            return $this->handleInput($input, $fieldsOperator, $fieldsIgnoreCase);
+            /**
+             * @phpstan-var J $result
+             * @phpstan-ignore argument.type
+             */
+            $result = $target->handleInput($input, $fieldsOperator, $fieldsIgnoreCase);
+
+            return $result;
         }
 
         throw new RuntimeException(sprintf('Unsupported request type: %s', $request::class));

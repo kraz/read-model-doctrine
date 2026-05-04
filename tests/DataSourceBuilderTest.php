@@ -9,8 +9,10 @@ use Doctrine\ORM\EntityManagerInterface;
 use InvalidArgumentException;
 use Kraz\ReadModel\Query\FilterExpression;
 use Kraz\ReadModel\Query\QueryExpression;
+use Kraz\ReadModel\Query\QueryExpressionProviderInterface;
 use Kraz\ReadModel\Query\QueryRequest;
 use Kraz\ReadModel\ReadModelDescriptor;
+use Kraz\ReadModel\ReadModelDescriptorFactoryInterface;
 use Kraz\ReadModelDoctrine\DataSourceBuilder;
 use Kraz\ReadModelDoctrine\Query\RawQuery;
 use Kraz\ReadModelDoctrine\Query\RawQueryBuilder;
@@ -21,6 +23,8 @@ use Kraz\ReadModelDoctrine\Tools\ParametersCollection;
 use Kraz\ReadModelDoctrine\Tools\QueryParts;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
+use RuntimeException;
+use stdClass;
 
 use function intval;
 use function is_array;
@@ -189,11 +193,11 @@ final class DataSourceBuilderTest extends TestCase
         self::assertNotSame($builder, $builder->withQueryExpression(QueryExpression::create()));
     }
 
-    public function testWithQueryExpressionFieldMappingReturnsNewBuilderInstance(): void
+    public function testWithFieldMappingReturnsNewBuilderInstance(): void
     {
         $builder = $this->makeBuilder();
 
-        self::assertNotSame($builder, $builder->withQueryExpressionFieldMapping(['name' => 'name']));
+        self::assertNotSame($builder, $builder->withFieldMapping(['name' => 'name']));
     }
 
     public function testWithQueryModifierReturnsNewBuilderInstance(): void
@@ -252,6 +256,28 @@ final class DataSourceBuilderTest extends TestCase
         $descriptor = new ReadModelDescriptor(['id', 'name'], [], [], []);
 
         self::assertNotSame($builder, $builder->withReadModelDescriptor($descriptor));
+    }
+
+    public function testWithQueryExpressionProviderReturnsNewBuilderInstance(): void
+    {
+        $builder  = $this->makeBuilder();
+        $provider = $this->createStub(QueryExpressionProviderInterface::class);
+
+        self::assertNotSame($builder, $builder->withQueryExpressionProvider($provider));
+    }
+
+    public function testWithDescriptorFactoryReturnsNewBuilderInstance(): void
+    {
+        $builder = $this->makeBuilder();
+        $factory = $this->createStub(ReadModelDescriptorFactoryInterface::class);
+
+        self::assertNotSame($builder, $builder->withDescriptorFactory($factory));
+    }
+
+    public function testHandleRequestThrowsForUnsupportedType(): void
+    {
+        $this->expectException(RuntimeException::class);
+        $this->makeBuilder()->handleRequest(new stdClass());
     }
 
     // -------------------------------------------------------------------------
@@ -680,12 +706,12 @@ final class DataSourceBuilderTest extends TestCase
      * passed directly in the options array. This is a behavioural inconsistency
      * worth being aware of.
      */
-    public function testWithQueryExpressionFieldMappingAlwaysOverridesOptionsFieldMap(): void
+    public function testWithFieldMappingAlwaysOverridesOptionsFieldMap(): void
     {
         // field_map from options would be overwritten by the builder's mapping.
         $ds = $this->makeBuilder()
             ->withData('SELECT * FROM test_entity ORDER BY id ASC')
-            ->withQueryExpressionFieldMapping(['id' => 'id'])
+            ->withFieldMapping(['id' => 'id'])
             ->create($this->connection, ['field_map' => ['other_field' => 'col']]);
 
         // Builder's field_map wins; results are unaffected because the identity

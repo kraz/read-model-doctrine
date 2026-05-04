@@ -9,7 +9,9 @@ use Doctrine\ORM\EntityManagerInterface;
 use Doctrine\ORM\Query as ORMQuery;
 use InvalidArgumentException;
 use Kraz\ReadModel\Query\QueryExpression;
+use Kraz\ReadModel\Query\QueryExpressionProviderInterface;
 use Kraz\ReadModel\Query\QueryRequest;
+use Kraz\ReadModel\ReadModelDescriptorFactoryInterface;
 use Kraz\ReadModel\ReadResponse;
 use Kraz\ReadModelDoctrine\DataSource;
 use Kraz\ReadModelDoctrine\Pagination\DoctrinePaginator;
@@ -395,11 +397,10 @@ final class DataSourceTest extends TestCase
         $this->makeOrmDs()->withPagination(0, 5);
     }
 
-    public function testWithPaginationWithZeroItemsPerPageDelegatesWithoutPagination(): void
+    public function testWithPaginationRejectsNonPositiveItemsPerPage(): void
     {
-        $ds = $this->makeOrmDs()->withPagination(1, 5)->withPagination(2, 0);
-
-        self::assertFalse($ds->isPaginated());
+        $this->expectException(InvalidArgumentException::class);
+        $this->makeOrmDs()->withPagination(1, 0);
     }
 
     public function testWithoutPaginationClearsPagination(): void
@@ -653,8 +654,10 @@ final class DataSourceTest extends TestCase
 
     public function testWithMethodsAlwaysReturnNewInstances(): void
     {
-        $ds = $this->makeOrmDs();
-        $qe = QueryExpression::create();
+        $ds       = $this->makeOrmDs();
+        $qe       = QueryExpression::create();
+        $factory  = $this->createStub(ReadModelDescriptorFactoryInterface::class);
+        $provider = $this->createStub(QueryExpressionProviderInterface::class);
 
         self::assertNotSame($ds, $ds->withPagination(1, 5));
         self::assertNotSame($ds, $ds->withoutPagination());
@@ -668,6 +671,15 @@ final class DataSourceTest extends TestCase
         self::assertNotSame($ds, $ds->withSpecification(new AgeAboveSpecification(25)));
         self::assertNotSame($ds, $ds->withoutSpecification());
         self::assertNotSame($ds, $ds->withoutSpecification(true));
+        self::assertNotSame($ds, $ds->withQueryExpressionProvider($provider));
+        self::assertNotSame($ds, $ds->withoutQueryExpressionProvider());
+        self::assertNotSame($ds, $ds->withoutQueryExpressionProvider(true));
+        self::assertNotSame($ds, $ds->withDescriptorFactory($factory));
+        self::assertNotSame($ds, $ds->withoutDescriptorFactory());
+        self::assertNotSame($ds, $ds->withoutDescriptorFactory(true));
+        self::assertNotSame($ds, $ds->withItemNormalizer(static fn (mixed $item): mixed => $item));
+        self::assertNotSame($ds, $ds->withoutItemNormalizer());
+        self::assertNotSame($ds, $ds->withoutItemNormalizer(true));
     }
 
     public function testWithPaginationDoesNotMutateOriginalPaginationState(): void

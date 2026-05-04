@@ -7,8 +7,8 @@ namespace Kraz\ReadModelDoctrine;
 use Doctrine\ORM\Mapping as ORM;
 use Doctrine\ORM\QueryBuilder;
 use InvalidArgumentException;
-use Kraz\ReadModel\BasicReadModelDescriptorFactory;
 use Kraz\ReadModel\ReadModelDescriptor;
+use Kraz\ReadModel\ReadModelDescriptorFactoryDefaults;
 use Kraz\ReadModel\ReadModelDescriptorFactoryInterface;
 use Override;
 use ReflectionClass;
@@ -28,7 +28,7 @@ use function ucwords;
 
 class ReadModelDescriptorFactory implements ReadModelDescriptorFactoryInterface
 {
-    use BasicReadModelDescriptorFactory;
+    use ReadModelDescriptorFactoryDefaults;
 
     #[Override]
     public function createReadModelDescriptorFrom(object|string $model): ReadModelDescriptor

@@ -8,225 +8,72 @@ use Doctrine\DBAL\Connection;
 use Doctrine\ORM\NativeQuery;
 use Doctrine\ORM\QueryBuilder;
 use InvalidArgumentException;
-use Kraz\ReadModel\Query\FilterExpression;
-use Kraz\ReadModel\Query\QueryExpression;
 use Kraz\ReadModel\Query\QueryExpressionProviderInterface;
-use Kraz\ReadModel\Query\QueryRequest;
-use Kraz\ReadModel\Query\SortExpression;
-use Kraz\ReadModel\ReadModelDescriptor;
+use Kraz\ReadModel\ReadDataProviderBuilder;
+use Kraz\ReadModel\ReadDataProviderBuilderInterface;
+use Kraz\ReadModel\ReadDataProviderCompositionInterface;
 use Kraz\ReadModel\ReadModelDescriptorFactoryInterface;
 use Kraz\ReadModelDoctrine\Query\QueryExpressionProvider;
 use Kraz\ReadModelDoctrine\Query\RawNativeQuery;
 use Kraz\ReadModelDoctrine\Query\RawQuery;
 use Kraz\ReadModelDoctrine\Query\RawQueryBuilder;
 
-use function array_pop;
-use function count;
-use function is_callable;
-
-/** @phpstan-import-type DataSourceOptionsWrapper from DataSource */
-class DataSourceBuilder
+/**
+ * @phpstan-import-type DataSourceOptionsWrapper from DataSource
+ * @phpstan-template-covariant T of object|array<string, mixed> = array<string, mixed>
+ * @implements ReadDataProviderCompositionInterface<T>
+ * @implements ReadDataProviderBuilderInterface<T>
+ */
+class DataSourceBuilder implements ReadDataProviderCompositionInterface, ReadDataProviderBuilderInterface
 {
-    private mixed $data = null;
-    /** @phpstan-var QueryExpression[] */
-    private array $queryExpressions = [];
-    /** @phpstan-var array<int, QueryExpression[]> */
-    private array $queryExpressionsHistory                = [];
-    private QueryRequest|null $queryRequest               = null;
-    private string|null $rootAlias                        = null;
-    private string|null $rootIdentifier                   = null;
-    private mixed $itemNormalizer                         = null;
-    private ReadModelDescriptor|null $readModelDescriptor = null;
-    /** @phpstan-var list<callable> */
-    private array $queryModifier = [];
-    /** @phpstan-var array<int, list<callable>> */
-    private array $queryModifierHistory = [];
-    private mixed $denormalizer         = null;
-    /** @var array<string, string>|null */
-    private array|null $queryExpressionFieldMapping = null;
+    /** @use ReadDataProviderBuilder<T> */
+    use ReadDataProviderBuilder;
 
-    public function __construct(
-        private ReadModelDescriptorFactoryInterface|null $descriptorFactory = null,
-        private QueryExpressionProviderInterface|null $queryExpressionProvider = null,
-    ) {
-        $this->descriptorFactory       ??= new ReadModelDescriptorFactory();
-        $this->queryExpressionProvider ??= new QueryExpressionProvider($this->descriptorFactory);
+    private mixed $data         = null;
+    private mixed $denormalizer = null;
+
+    protected function createDefaultDescriptorFactory(): ReadModelDescriptorFactoryInterface
+    {
+        return new ReadModelDescriptorFactory();
     }
 
-    public function qry(): QueryExpression
+    protected function createDefaultQueryExpressionProvider(ReadModelDescriptorFactoryInterface $factory): QueryExpressionProviderInterface
     {
-        return QueryExpression::create();
-    }
-
-    public function expr(): FilterExpression
-    {
-        return FilterExpression::create();
-    }
-
-    public function andWhere(FilterExpression ...$expr): self
-    {
-        $current                   = $this->queryExpressions[0] ?? QueryExpression::create();
-        $this->queryExpressions[0] = $current->andWhere(...$expr);
-
-        return $this;
-    }
-
-    public function orWhere(FilterExpression ...$expr): self
-    {
-        $current                   = $this->queryExpressions[0] ?? QueryExpression::create();
-        $this->queryExpressions[0] = $current->orWhere(...$expr);
-
-        return $this;
-    }
-
-    public function sortBy(string $field, string $dir = SortExpression::DIR_ASC): self
-    {
-        $current                   = $this->queryExpressions[0] ?? QueryExpression::create();
-        $this->queryExpressions[0] = $current->sortBy($field, $dir);
-
-        return $this;
+        return new QueryExpressionProvider($factory);
     }
 
     /**
-     * @phpstan-param string|RawQuery<T>|RawNativeQuery<T>|RawQueryBuilder<T>|NativeQuery|QueryBuilder $data
+     * @phpstan-param string|RawQuery<J>|RawNativeQuery<J>|RawQueryBuilder<J>|NativeQuery|QueryBuilder $data
      *
-     * @phpstan-template T of object|array<string, mixed>
+     * @phpstan-return static<J>
+     *
+     * @phpstan-template J of object|array<string, mixed> = array<string, mixed>
      */
     public function withData(string|RawQuery|RawNativeQuery|RawQueryBuilder|NativeQuery|QueryBuilder $data): static
     {
+        /** @phpstan-var static<J> $clone */
         $clone       = clone $this;
         $clone->data = $data;
 
         return $clone;
     }
 
-    public function withQueryExpression(QueryExpression $queryExpression, bool $append = false): static
-    {
-        $clone                            = clone $this;
-        $clone->queryExpressionsHistory[] = $clone->queryExpressions;
-        $clone->queryExpressions          = $append
-            ? [...$clone->queryExpressions, $queryExpression]
-            : [$queryExpression];
-
-        return $clone;
-    }
-
-    public function withoutQueryExpression(bool $undo = false): static
-    {
-        $clone = clone $this;
-
-        if ($undo) {
-            $clone->queryExpressions = count($clone->queryExpressionsHistory) > 0
-                ? array_pop($clone->queryExpressionsHistory)
-                : [];
-        } else {
-            $clone->queryExpressions        = [];
-            $clone->queryExpressionsHistory = [];
-        }
-
-        return $clone;
-    }
-
-    /** @phpstan-param array<string, string> $queryExpressionFieldMapping */
-    public function withQueryExpressionFieldMapping(array $queryExpressionFieldMapping): static
-    {
-        $clone                              = clone $this;
-        $clone->queryExpressionFieldMapping = $queryExpressionFieldMapping;
-
-        return $clone;
-    }
-
-    public function withQueryModifier(callable $modifier, bool $append = false): static
-    {
-        $clone                         = clone $this;
-        $clone->queryModifierHistory[] = $clone->queryModifier;
-        $clone->queryModifier          = $append
-            ? [...$clone->queryModifier, $modifier]
-            : [$modifier];
-
-        return $clone;
-    }
-
-    public function withoutQueryModifier(bool $undo = false): static
-    {
-        $clone = clone $this;
-
-        if ($undo) {
-            $clone->queryModifier = count($clone->queryModifierHistory) > 0
-                ? array_pop($clone->queryModifierHistory)
-                : [];
-        } else {
-            $clone->queryModifier        = [];
-            $clone->queryModifierHistory = [];
-        }
-
-        return $clone;
-    }
-
     public function withDenormalizer(callable $callback): static
     {
+        /** @phpstan-var static<T> $clone */
         $clone               = clone $this;
         $clone->denormalizer = $callback;
 
         return $clone;
     }
 
-    public function withQueryRequest(QueryRequest $queryRequest): static
-    {
-        $clone               = clone $this;
-        $clone->queryRequest = $queryRequest;
-
-        return $clone;
-    }
-
-    public function withRootAlias(string $rootAlias): static
-    {
-        $clone            = clone $this;
-        $clone->rootAlias = $rootAlias;
-
-        return $clone;
-    }
-
-    public function withRootIdentifier(string $rootIdentifier): static
-    {
-        $clone                 = clone $this;
-        $clone->rootIdentifier = $rootIdentifier;
-
-        return $clone;
-    }
-
-    public function withItemNormalizer(callable $itemNormalizer): static
-    {
-        $clone                 = clone $this;
-        $clone->itemNormalizer = $itemNormalizer;
-
-        return $clone;
-    }
-
-    /** @phpstan-param object|class-string $model */
-    public function withReadModel(object|string $model): static
-    {
-        $clone                      = clone $this;
-        $clone->readModelDescriptor = $this->descriptorFactory?->createReadModelDescriptorFrom($model);
-
-        return $clone;
-    }
-
-    public function withReadModelDescriptor(ReadModelDescriptor $readModelDescriptor): static
-    {
-        $clone                      = clone $this;
-        $clone->readModelDescriptor = $readModelDescriptor;
-
-        return $clone;
-    }
-
     /**
      * @phpstan-param DataSourceOptionsWrapper $options
-     * @phpstan-param string|RawQuery<T>|RawNativeQuery<T>|RawQueryBuilder<T>|NativeQuery|QueryBuilder|null $data
+     * @phpstan-param string|RawQuery<J>|RawNativeQuery<J>|RawQueryBuilder<J>|NativeQuery|QueryBuilder|null $data
      *
-     * @return ($data is null ? DataSource<object|array<string, mixed>> : DataSource<T>)
+     * @return ($data is null ? DataSource<object|array<string, mixed>> : DataSource<J>)
      *
-     * @phpstan-template T of object|array<string, mixed>
+     * @phpstan-template J of object|array<string, mixed>
      */
     public function create(Connection $connection, array $options = [], string|RawQuery|RawNativeQuery|RawQueryBuilder|NativeQuery|QueryBuilder|null $data = null): DataSource
     {
@@ -237,47 +84,44 @@ class DataSourceBuilder
 
         $options['connection'] = $connection;
         if ($this->rootAlias !== null) {
-            $options['root_alias'] ??= $this->rootAlias;
+            $options['root_alias'] = $this->rootAlias;
         }
 
         if ($this->rootIdentifier !== null) {
-            $options['root_identifier'] ??= $this->rootIdentifier;
+            $options['root_identifier'] = $this->rootIdentifier;
         }
 
         if ($this->denormalizer !== null) {
-            $options['denormalizer'] ??= $this->denormalizer;
+            $options['denormalizer'] = $this->denormalizer;
         }
 
         if ($this->itemNormalizer !== null) {
-            $options['item_normalizer'] ??= $this->itemNormalizer;
+            $options['item_normalizer'] = $this->itemNormalizer;
         }
 
         if ($this->readModelDescriptor !== null) {
-            $options['read_model_descriptor'] ??= $this->readModelDescriptor;
+            $options['read_model_descriptor'] = $this->readModelDescriptor;
         }
 
-        if ($this->queryExpressionFieldMapping !== null) {
-            $options['field_map'] = $this->queryExpressionFieldMapping;
+        if ($this->fieldMapping !== null) {
+            $options['field_map'] = $this->fieldMapping;
         }
 
-        $dataSource = new DataSource($this->data, $this->queryExpressionProvider, $options);
+        /** @phpstan-var DataSource<J> $dataSource */
+        $dataSource = new DataSource($data, $this->queryExpressionProvider, $options);
 
-        if ($this->queryRequest !== null) {
-            $dataSource = $dataSource->withQueryRequest($this->queryRequest);
-        }
+        return $this->apply($dataSource);
+    }
 
-        foreach ($this->queryExpressions as $qe) {
-            $dataSource = $dataSource->withQueryExpression($qe, true);
-        }
+    /**
+     * @phpstan-param array<string, string> $fieldsOperator
+     * @phpstan-param array<string, bool> $fieldsIgnoreCase
+     */
+    public function handleRequest(object $request, array $fieldsOperator = [], array $fieldsIgnoreCase = []): static
+    {
+        /** @phpstan-var static<T> $ds */
+        $ds =  DataSource::applyRequestTo($this, $request, $fieldsOperator, $fieldsIgnoreCase);
 
-        foreach ($this->queryModifier as $modifier) {
-            if (! is_callable($modifier)) {
-                continue;
-            }
-
-            $dataSource = $dataSource->withQueryModifier($modifier, true);
-        }
-
-        return $dataSource;
+        return $ds;
     }
 }
