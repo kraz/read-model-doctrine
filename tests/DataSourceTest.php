@@ -1041,4 +1041,129 @@ final class DataSourceTest extends TestCase
 
         self::assertSame([1, 3, 4], $this->ids($result));
     }
+
+    // -------------------------------------------------------------------------
+    // getIterator / data with specs + limit — multi-batch behaviour
+    //
+    // Seeded rows (ordered by id):
+    //   1 Alice   age=30  ← age>28 ✓
+    //   2 Bob     age=25  ← age>28 ✗
+    //   3 Charlie age=35  ← age>28 ✓
+    //   4 Dave    age=40  ← age>28 ✓
+    //   5 Eve     age=28  ← age>28 ✗
+    //
+    // Naive DB-limit-first strategy for limit=3:
+    //   DB returns rows 1-3, PHP keeps [1,3] → only 2 items despite limit=3.
+    //
+    // Correct strategy (specificationsIterator):
+    //   Batch 1 (rows 1-3) → matches [1,3]; collected=2, need 1 more
+    //   Batch 2 (rows 4-5) → matches [4];   collected=3, done
+    //   Result: [1,3,4]
+    // -------------------------------------------------------------------------
+
+    public function testDataWithSpecAndLimitSpansMultipleBatchesOrm(): void
+    {
+        // Proves the DataSource crosses batch boundaries to satisfy the limit.
+        $ds = $this->makeOrmDs()
+            ->withSpecification(new AgeAboveSpecification(28))
+            ->withLimit(3);
+
+        self::assertSame([1, 3, 4], $this->ids($ds->data()));
+    }
+
+    public function testDataWithSpecAndLimitSpansMultipleBatchesRawSql(): void
+    {
+        $ds = $this->makeRawDs()
+            ->withSpecification(new AgeAboveSpecification(28))
+            ->withLimit(3);
+
+        self::assertSame([1, 3, 4], $this->ids($ds->data()));
+    }
+
+    public function testDataWithSpecAndLimitStopsEarlyWhenLimitReached(): void
+    {
+        // limit=2: only the first 2 matches are collected, remainder is not fetched.
+        $ds = $this->makeOrmDs()
+            ->withSpecification(new AgeAboveSpecification(28))
+            ->withLimit(2);
+
+        self::assertSame([1, 3], $this->ids($ds->data()));
+    }
+
+    public function testDataWithSpecAndLimitReturnsFewerWhenMatchesAreExhausted(): void
+    {
+        // Only 3 rows match age>28, but limit=10 → all 3 are returned.
+        $ds = $this->makeOrmDs()
+            ->withSpecification(new AgeAboveSpecification(28))
+            ->withLimit(10);
+
+        self::assertSame([1, 3, 4], $this->ids($ds->data()));
+    }
+
+    public function testDataWithPhpOnlySpecAndLimitSpansMultipleBatches(): void
+    {
+        // NameEqualsSpecification carries no QueryExpression → DB returns full batches,
+        // PHP filters in memory.  Only Alice (id=1) matches; limit=3 → [1].
+        $ds = $this->makeOrmDs()
+            ->withSpecification(new NameEqualsSpecification('Alice'))
+            ->withLimit(3);
+
+        self::assertSame([1], $this->ids($ds->data()));
+    }
+
+    public function testDataWithSpecAndLimitAndOffsetSkipsMatchingItems(): void
+    {
+        // age>28 matches [1,3,4]. offset=1 skips Alice → [3,4]; limit=2 collects both.
+        $ds = $this->makeOrmDs()
+            ->withSpecification(new AgeAboveSpecification(28))
+            ->withLimit(2, 1);
+
+        self::assertSame([3, 4], $this->ids($ds->data()));
+    }
+
+    public function testDataWithSpecAndLimitOnRawSqlRespectsOffset(): void
+    {
+        $ds = $this->makeRawDs()
+            ->withSpecification(new AgeAboveSpecification(28))
+            ->withLimit(2, 1);
+
+        self::assertSame([3, 4], $this->ids($ds->data()));
+    }
+
+    public function testDataWithSpecAndLimitDoesNotMutateOriginal(): void
+    {
+        $original = $this->makeOrmDs()->withSpecification(new AgeAboveSpecification(28));
+        $original->withLimit(1);
+
+        // The original (no limit) should still return all 3 matching items.
+        self::assertSame([1, 3, 4], $this->ids($original->data()));
+    }
+
+    public function testTotalCountWithSpecAndLimitIgnoresLimit(): void
+    {
+        // totalCount must reflect all matching rows, not the imposed limit.
+        $ds = $this->makeOrmDs()
+            ->withSpecification(new AgeAboveSpecification(28))
+            ->withLimit(1);
+
+        self::assertSame(3, $ds->totalCount());
+    }
+
+    public function testTotalCountWithPhpOnlySpecAndLimitIgnoresLimit(): void
+    {
+        $ds = $this->makeOrmDs()
+            ->withSpecification(new NameEqualsSpecification('Alice'))
+            ->withLimit(1);
+
+        self::assertSame(1, $ds->totalCount());
+    }
+
+    public function testTotalCountWithSpecAndLimitOnRawSqlIgnoresLimit(): void
+    {
+        $ds = $this->makeRawDs('SELECT * FROM test_entity r /*#WHERE#*/ ORDER BY r.id ASC')
+            ->withSpecification(new AgeAboveSpecification(28))
+            ->withLimit(1);
+
+        self::assertSame(3, $ds->totalCount());
+    }
 }

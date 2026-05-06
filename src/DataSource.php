@@ -332,6 +332,21 @@ class DataSource implements ReadDataProviderInterface
     #[Override]
     public function getIterator(): Traversable
     {
+        $specifications = $this->specifications;
+        $hasSpecs       = count($specifications) > 0;
+
+        if ($hasSpecs && $this->limit !== null) {
+            [$limitValue, $offsetValue] = $this->limit;
+
+            yield from $this->withoutSpecification()->withoutLimit()->specificationsIterator(
+                $specifications,
+                $limitValue,
+                $offsetValue ?? 0,
+            );
+
+            return;
+        }
+
         $query    = $this->getQuery();
         $iterator = $this->paginator();
         if ($iterator === null) {
@@ -340,12 +355,10 @@ class DataSource implements ReadDataProviderInterface
                 : $query->toIterable();
         }
 
-        $specifications = $this->specifications;
         $itemNormalizer = $query instanceof AbstractQuery
             ? ($this->options['item_normalizer'] ?? null)
             : null;
 
-        $hasSpecs      = count($specifications) > 0;
         $hasNormalizer = is_callable($itemNormalizer);
 
         if ($hasSpecs || $hasNormalizer) {
@@ -408,7 +421,7 @@ class DataSource implements ReadDataProviderInterface
     public function totalCount(): int
     {
         if (count($this->specifications) > 0) {
-            return iterator_count($this->getIterator());
+            return iterator_count($this->withoutLimit()->getIterator());
         }
 
         $query = $this->getQuery();
