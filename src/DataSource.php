@@ -30,6 +30,7 @@ use Kraz\ReadModelDoctrine\Query\RawQuery;
 use Kraz\ReadModelDoctrine\Query\RawQueryBuilder;
 use Kraz\ReadModelDoctrine\Tools\ParametersCollection;
 use Kraz\ReadModelDoctrine\Tools\QueryParts;
+use LogicException;
 use Nyholm\Psr7\Factory\Psr17Factory;
 use Override;
 use Psr\Http\Message\RequestInterface;
@@ -48,7 +49,6 @@ use function gettype;
 use function is_callable;
 use function is_object;
 use function is_string;
-use function iterator_count;
 use function iterator_to_array;
 use function parse_str;
 use function sprintf;
@@ -58,7 +58,7 @@ use function sprintf;
  * @phpstan-type DataSourceOptions = array{
  *     connection: Connection|null,
  *     hydrator: 1|2|3|4|5|6|string,
- *     root_identifier: string,
+ *     root_identifier: string|string[],
  *     root_alias: string|string[],
  *     quoteTableAlias: bool,
  *     quoteFieldNames: bool,
@@ -287,6 +287,8 @@ class DataSource implements ReadDataProviderInterface
     #[Override]
     public function paginator(): PaginatorInterface|null
     {
+        $this->assertNoSpecifications();
+
         if ($this->paginator) {
             return $this->paginator;
         }
@@ -348,7 +350,7 @@ class DataSource implements ReadDataProviderInterface
         }
 
         $query    = $this->getQuery();
-        $iterator = $this->paginator();
+        $iterator = $hasSpecs ? null : $this->paginator();
         if ($iterator === null) {
             $iterator = $query instanceof ORMQuery
                 ? $query->toIterable([], $this->options['hydrator'])
@@ -395,6 +397,8 @@ class DataSource implements ReadDataProviderInterface
     #[Override]
     public function getResult(): array|ReadResponse
     {
+        $this->assertNoSpecifications();
+
         $data = $this->data();
 
         if ($this->isValue()) {
@@ -410,6 +414,8 @@ class DataSource implements ReadDataProviderInterface
     #[Override]
     public function count(): int
     {
+        $this->assertNoSpecifications();
+
         if ($this->isPaginated()) {
             return $this->paginator()?->count() ?? 0;
         }
@@ -420,9 +426,7 @@ class DataSource implements ReadDataProviderInterface
     #[Override]
     public function totalCount(): int
     {
-        if (count($this->specifications) > 0) {
-            return iterator_count($this->withoutLimit()->getIterator());
-        }
+        $this->assertNoSpecifications();
 
         $query = $this->getQuery();
         if ($query instanceof AbstractRawQuery) {
@@ -440,6 +444,8 @@ class DataSource implements ReadDataProviderInterface
     #[Override]
     public function isEmpty(): bool
     {
+        $this->assertNoSpecifications();
+
         return $this->totalCount() === 0;
     }
 
@@ -453,6 +459,13 @@ class DataSource implements ReadDataProviderInterface
         [$page, $itemsPerPage] = $this->pagination;
 
         return $page > 0 && $itemsPerPage > 0;
+    }
+
+    private function assertNoSpecifications(): void
+    {
+        if (count($this->specifications) > 0) {
+            throw new LogicException('Cannot use this method when specifications are set. Use getIterator() or data() instead.');
+        }
     }
 
     /**

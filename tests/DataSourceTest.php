@@ -847,37 +847,34 @@ final class DataSourceTest extends TestCase
         self::assertSame(5, $this->makeRawDs()->totalCount());
     }
 
-    public function testTotalCountWithPhpOnlySpecReflectsSpecFilteredCount(): void
+    public function testTotalCountWithSpecificationsThrows(): void
     {
-        // NameEqualsSpecification has no QueryExpression → DB returns 5, PHP filter keeps 1.
-        $ds = $this->makeOrmDs()->withSpecification(new NameEqualsSpecification('Alice'));
-
-        self::assertSame(1, $ds->totalCount());
+        $this->expectException(LogicException::class);
+        $this->makeOrmDs()->withSpecification(new NameEqualsSpecification('Alice'))->totalCount();
     }
 
-    public function testTotalCountWithPhpOnlySpecOnRawSqlReflectsSpecFilteredCount(): void
+    public function testCountWithSpecificationsThrows(): void
     {
-        $ds = $this->makeRawDs()->withSpecification(new NameEqualsSpecification('Bob'));
-
-        self::assertSame(1, $ds->totalCount());
+        $this->expectException(LogicException::class);
+        $this->makeOrmDs()->withSpecification(new NameEqualsSpecification('Alice'))->count();
     }
 
-    public function testTotalCountWithQeSpecReflectsSpecFilteredCount(): void
+    public function testIsEmptyWithSpecificationsThrows(): void
     {
-        // AgeAboveSpecification provides a QueryExpression → DB-level filter + PHP validation.
-        // age > 28: Alice(30), Charlie(35), Dave(40) → 3 items.
-        $ds = $this->makeOrmDs()->withSpecification(new AgeAboveSpecification(28));
-
-        self::assertSame(3, $ds->totalCount());
+        $this->expectException(LogicException::class);
+        $this->makeOrmDs()->withSpecification(new NameEqualsSpecification('Alice'))->isEmpty();
     }
 
-    public function testTotalCountWithQeSpecOnRawSqlReflectsSpecFilteredCount(): void
+    public function testGetResultWithSpecificationsThrows(): void
     {
-        $ds = $this->makeRawDs(
-            'SELECT * FROM test_entity r /*#WHERE#*/ ORDER BY r.id ASC',
-        )->withSpecification(new AgeAboveSpecification(28));
+        $this->expectException(LogicException::class);
+        $this->makeOrmDs()->withSpecification(new NameEqualsSpecification('Alice'))->getResult();
+    }
 
-        self::assertSame(3, $ds->totalCount());
+    public function testPaginatorWithSpecificationsThrows(): void
+    {
+        $this->expectException(LogicException::class);
+        $this->makeOrmDs()->withSpecification(new NameEqualsSpecification('Alice'))->paginator();
     }
 
     public function testCountFirstPageReturnsCorrectCount(): void
@@ -894,14 +891,13 @@ final class DataSourceTest extends TestCase
         self::assertSame(2, $ds->count());
     }
 
-    public function testTotalCountRemainsAccurateWithMultipleSpecsIncludingPhpOnly(): void
+    public function testTotalCountWithMultipleSpecsThrows(): void
     {
-        // age > 28 (QE spec) AND name = Alice (PHP-only spec) → 1 item.
-        $ds = $this->makeOrmDs()
+        $this->expectException(LogicException::class);
+        $this->makeOrmDs()
             ->withSpecification(new AgeAboveSpecification(28))
-            ->withSpecification(new NameEqualsSpecification('Alice'), true);
-
-        self::assertSame(1, $ds->totalCount());
+            ->withSpecification(new NameEqualsSpecification('Alice'), true)
+            ->totalCount();
     }
 
     // -------------------------------------------------------------------------
@@ -1139,31 +1135,12 @@ final class DataSourceTest extends TestCase
         self::assertSame([1, 3, 4], $this->ids($original->data()));
     }
 
-    public function testTotalCountWithSpecAndLimitIgnoresLimit(): void
+    public function testTotalCountWithSpecAndLimitThrows(): void
     {
-        // totalCount must reflect all matching rows, not the imposed limit.
-        $ds = $this->makeOrmDs()
+        $this->expectException(LogicException::class);
+        $this->makeOrmDs()
             ->withSpecification(new AgeAboveSpecification(28))
-            ->withLimit(1);
-
-        self::assertSame(3, $ds->totalCount());
-    }
-
-    public function testTotalCountWithPhpOnlySpecAndLimitIgnoresLimit(): void
-    {
-        $ds = $this->makeOrmDs()
-            ->withSpecification(new NameEqualsSpecification('Alice'))
-            ->withLimit(1);
-
-        self::assertSame(1, $ds->totalCount());
-    }
-
-    public function testTotalCountWithSpecAndLimitOnRawSqlIgnoresLimit(): void
-    {
-        $ds = $this->makeRawDs('SELECT * FROM test_entity r /*#WHERE#*/ ORDER BY r.id ASC')
-            ->withSpecification(new AgeAboveSpecification(28))
-            ->withLimit(1);
-
-        self::assertSame(3, $ds->totalCount());
+            ->withLimit(1)
+            ->totalCount();
     }
 }
