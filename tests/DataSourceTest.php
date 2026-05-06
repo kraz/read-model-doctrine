@@ -11,6 +11,7 @@ use InvalidArgumentException;
 use Kraz\ReadModel\Query\QueryExpression;
 use Kraz\ReadModel\Query\QueryExpressionProviderInterface;
 use Kraz\ReadModel\Query\QueryRequest;
+use Kraz\ReadModel\ReadDataProviderAccess;
 use Kraz\ReadModel\ReadModelDescriptorFactoryInterface;
 use Kraz\ReadModel\ReadResponse;
 use Kraz\ReadModelDoctrine\DataSource;
@@ -24,6 +25,7 @@ use Kraz\ReadModelDoctrine\Tests\Fixtures\TestEntity;
 use Kraz\ReadModelDoctrine\Tests\Tools\ORMTestKit;
 use Kraz\ReadModelDoctrine\Tools\ParametersCollection;
 use Kraz\ReadModelDoctrine\Tools\QueryParts;
+use LogicException;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
@@ -34,6 +36,7 @@ use function is_array;
 use function iterator_to_array;
 
 #[CoversClass(DataSource::class)]
+#[CoversClass(ReadDataProviderAccess::class)]
 final class DataSourceTest extends TestCase
 {
     private EntityManagerInterface $em;
@@ -779,15 +782,20 @@ final class DataSourceTest extends TestCase
         self::assertSame([2, 3, 4, 5], $this->ids($ds->data()));
     }
 
-    public function testWithSpecificationWorksWithPagination(): void
+    public function testWithSpecificationAfterPaginationThrows(): void
     {
-        // age > 28: ids 1, 3, 4 (3 items). Page 1, 2 per page → ids 1, 3
-        $ds = $this->makeOrmDs()
+        $this->expectException(LogicException::class);
+        $this->makeOrmDs()
+            ->withPagination(1, 2)
+            ->withSpecification(new AgeAboveSpecification(28));
+    }
+
+    public function testWithPaginationAfterSpecificationThrows(): void
+    {
+        $this->expectException(LogicException::class);
+        $this->makeOrmDs()
             ->withSpecification(new AgeAboveSpecification(28))
             ->withPagination(1, 2);
-
-        self::assertTrue($ds->isPaginated());
-        self::assertSame([1, 3], $this->ids($ds->data()));
     }
 
     public function testWithoutSpecificationUndoRestoresPreviousStack(): void
@@ -872,24 +880,18 @@ final class DataSourceTest extends TestCase
         self::assertSame(3, $ds->totalCount());
     }
 
-    public function testCountWhenPaginatedWithPhpOnlySpecReflectsSpecFilteredPageCount(): void
+    public function testCountFirstPageReturnsCorrectCount(): void
     {
-        // Alice is on page 1 when ordered by id; spec keeps only Alice → 1 item on page.
-        $ds = $this->makeOrmDs()
-            ->withSpecification(new NameEqualsSpecification('Alice'))
-            ->withPagination(1, 3);
+        $ds = $this->makeOrmDs()->withPagination(1, 3);
 
-        self::assertSame(1, $ds->count());
+        self::assertSame(3, $ds->count());
     }
 
-    public function testCountWhenPaginatedWithPhpOnlySpecOnPageWithNoMatchReturnsZero(): void
+    public function testCountSecondPageReturnsRemainder(): void
     {
-        // Page 2 (items 4-5 by id: Dave, Eve) — neither is Alice.
-        $ds = $this->makeOrmDs()
-            ->withSpecification(new NameEqualsSpecification('Alice'))
-            ->withPagination(2, 3);
+        $ds = $this->makeOrmDs()->withPagination(2, 3);
 
-        self::assertSame(0, $ds->count());
+        self::assertSame(2, $ds->count());
     }
 
     public function testTotalCountRemainsAccurateWithMultipleSpecsIncludingPhpOnly(): void
@@ -900,5 +902,143 @@ final class DataSourceTest extends TestCase
             ->withSpecification(new NameEqualsSpecification('Alice'), true);
 
         self::assertSame(1, $ds->totalCount());
+    }
+
+    // -------------------------------------------------------------------------
+    // withLimit / withoutLimit — DB-level enforcement
+    // -------------------------------------------------------------------------
+
+    public function testWithLimitRestrictsOrmResultCount(): void
+    {
+        // All 5 rows seeded; limit 3 → first 3 by id.
+        $ds = $this->makeOrmDs()->withLimit(3);
+
+        self::assertSame([1, 2, 3], $this->ids($ds->data()));
+    }
+
+    public function testWithLimitAndOffsetSkipsOrmRows(): void
+    {
+        $ds = $this->makeOrmDs()->withLimit(2, 2);
+
+        self::assertSame([3, 4], $this->ids($ds->data()));
+    }
+
+    public function testWithLimitRestrictsRawSqlResultCount(): void
+    {
+        $ds = $this->makeRawDs()->withLimit(2);
+
+        self::assertSame([1, 2], $this->ids($ds->data()));
+    }
+
+    public function testWithLimitAndOffsetOnRawSql(): void
+    {
+        $ds = $this->makeRawDs()->withLimit(2, 3);
+
+        self::assertSame([4, 5], $this->ids($ds->data()));
+    }
+
+    public function testWithLimitClearsPagination(): void
+    {
+        $limited = $this->makeOrmDs()->withPagination(1, 2)->withLimit(3);
+
+        self::assertFalse($limited->isPaginated());
+        self::assertSame([1, 2, 3], $this->ids($limited->data()));
+    }
+
+    public function testWithPaginationClearsLimit(): void
+    {
+        $paged = $this->makeOrmDs()->withLimit(2)->withPagination(2, 2);
+
+        self::assertTrue($paged->isPaginated());
+        self::assertSame([3, 4], $this->ids($paged->data()));
+    }
+
+    public function testWithoutLimitClearsLimit(): void
+    {
+        $ds = $this->makeOrmDs()->withLimit(2)->withoutLimit();
+
+        self::assertSame([1, 2, 3, 4, 5], $this->ids($ds->data()));
+    }
+
+    public function testWithoutLimitUndoRestoresPreviousLimit(): void
+    {
+        $ds = $this->makeOrmDs()->withLimit(3)->withLimit(1)->withoutLimit(true);
+
+        self::assertSame([1, 2, 3], $this->ids($ds->data()));
+    }
+
+    public function testWithLimitRejectsNonPositiveValue(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->makeOrmDs()->withLimit(0);
+    }
+
+    public function testWithLimitDoesNotMutateOriginal(): void
+    {
+        $original = $this->makeOrmDs();
+        $original->withLimit(2);
+
+        self::assertSame([1, 2, 3, 4, 5], $this->ids($original->data()));
+    }
+
+    // -------------------------------------------------------------------------
+    // specificationsIterator — eager batch-fetching via DB limit/offset
+    // -------------------------------------------------------------------------
+
+    public function testSpecificationsIteratorReturnsMatchingOrmItems(): void
+    {
+        // age > 28: Alice(1,30), Charlie(3,35), Dave(4,40) → limit 2 → [1,3]
+        $result = $this->makeOrmDs()->specificationsIterator([new AgeAboveSpecification(28)], limit: 2);
+
+        self::assertSame([1, 3], $this->ids($result));
+    }
+
+    public function testSpecificationsIteratorRespectsOffset(): void
+    {
+        // age > 28 matches ids 1,3,4; skip first 1, take 2 → [3,4]
+        $result = $this->makeOrmDs()->specificationsIterator([new AgeAboveSpecification(28)], limit: 2, offset: 1);
+
+        self::assertSame([3, 4], $this->ids($result));
+    }
+
+    public function testSpecificationsIteratorOnRawSqlReturnsMatchingItems(): void
+    {
+        $result = $this->makeRawDs()->specificationsIterator([new AgeAboveSpecification(28)], limit: 2);
+
+        self::assertSame([1, 3], $this->ids($result));
+    }
+
+    public function testSpecificationsIteratorWithPhpOnlySpecFiltersCorrectly(): void
+    {
+        // NameEqualsSpecification has no QueryExpression → DB returns all, PHP keeps matches.
+        $result = $this->makeOrmDs()->specificationsIterator([new NameEqualsSpecification('Alice')], limit: 5);
+
+        self::assertSame([1], $this->ids($result));
+    }
+
+    public function testSpecificationsIteratorWithMultipleSpecsRequiresAllSatisfied(): void
+    {
+        // age > 28 AND name = Alice → only Alice (id 1)
+        $result = $this->makeOrmDs()->specificationsIterator(
+            [new AgeAboveSpecification(28), new NameEqualsSpecification('Alice')],
+            limit: 5,
+        );
+
+        self::assertSame([1], $this->ids($result));
+    }
+
+    public function testSpecificationsIteratorReturnsEmptyWhenNothingMatches(): void
+    {
+        $result = $this->makeOrmDs()->specificationsIterator([new NameEqualsSpecification('Nobody')], limit: 5);
+
+        self::assertSame([], $this->ids($result));
+    }
+
+    public function testSpecificationsIteratorWithoutLimitReturnsAllMatching(): void
+    {
+        // age > 28: ids 1,3,4
+        $result = $this->makeOrmDs()->specificationsIterator([new AgeAboveSpecification(28)]);
+
+        self::assertSame([1, 3, 4], $this->ids($result));
     }
 }

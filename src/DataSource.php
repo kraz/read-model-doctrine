@@ -14,6 +14,7 @@ use Doctrine\ORM\Tools\Pagination\Paginator;
 use InvalidArgumentException;
 use Kraz\ReadModel\Pagination\PaginatorInterface;
 use Kraz\ReadModel\Query\QueryExpressionProviderInterface;
+use Kraz\ReadModel\ReadDataProviderAccess;
 use Kraz\ReadModel\ReadDataProviderComposition;
 use Kraz\ReadModel\ReadDataProviderCompositionInterface;
 use Kraz\ReadModel\ReadDataProviderInterface;
@@ -86,6 +87,8 @@ class DataSource implements ReadDataProviderInterface
 {
     /** @use ReadDataProviderComposition<T> */
     use ReadDataProviderComposition;
+    /** @use ReadDataProviderAccess<T> */
+    use ReadDataProviderAccess;
 
     public const int DEFAULT_HYDRATOR = AbstractQuery::HYDRATE_ARRAY;
 
@@ -234,16 +237,12 @@ class DataSource implements ReadDataProviderInterface
             }
         }
 
-        if ($this->pagination === null) {
-            $page         = null;
-            $itemsPerPage = null;
-        } else {
+        if ($this->pagination !== null) {
             [$page, $itemsPerPage] = $this->pagination;
-        }
-
-        if ($page !== null && $itemsPerPage !== null) {
-            $firstResult = ($page - 1) * $itemsPerPage;
-            $maxResults  = $itemsPerPage;
+            $firstResult           = ($page - 1) * $itemsPerPage;
+            $maxResults            = $itemsPerPage;
+        } elseif ($this->limit !== null) {
+            [$maxResults, $firstResult] = $this->limit;
         } else {
             $firstResult = null;
             $maxResults  = null;
@@ -399,10 +398,6 @@ class DataSource implements ReadDataProviderInterface
     public function count(): int
     {
         if ($this->isPaginated()) {
-            if (count($this->specifications) > 0) {
-                return iterator_count($this->getIterator());
-            }
-
             return $this->paginator()?->count() ?? 0;
         }
 
@@ -413,7 +408,7 @@ class DataSource implements ReadDataProviderInterface
     public function totalCount(): int
     {
         if (count($this->specifications) > 0) {
-            return iterator_count($this->withoutPagination()->getIterator());
+            return iterator_count($this->getIterator());
         }
 
         $query = $this->getQuery();
