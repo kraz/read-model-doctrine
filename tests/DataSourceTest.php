@@ -641,6 +641,25 @@ final class DataSourceTest extends TestCase
         self::assertSame([], $ds->queryExpressions());
     }
 
+    public function testWithQueryRequestAppliesLimit(): void
+    {
+        $request = QueryRequest::create()->withLimit(2);
+
+        $ds = $this->makeOrmDs()->withQueryRequest($request);
+
+        self::assertFalse($ds->isPaginated());
+        self::assertSame([1, 2], $this->ids($ds->data()));
+    }
+
+    public function testWithQueryRequestAppliesLimitAndOffset(): void
+    {
+        $request = QueryRequest::create()->withLimit(2, 2);
+
+        $ds = $this->makeOrmDs()->withQueryRequest($request);
+
+        self::assertSame([3, 4], $this->ids($ds->data()));
+    }
+
     // -------------------------------------------------------------------------
     // handleRequest
     // -------------------------------------------------------------------------
@@ -683,6 +702,9 @@ final class DataSourceTest extends TestCase
         self::assertNotSame($ds, $ds->withItemNormalizer(static fn (mixed $item): mixed => $item));
         self::assertNotSame($ds, $ds->withoutItemNormalizer());
         self::assertNotSame($ds, $ds->withoutItemNormalizer(true));
+        self::assertNotSame($ds, $ds->withLimit(1));
+        self::assertNotSame($ds, $ds->withoutLimit());
+        self::assertNotSame($ds, $ds->withoutLimit(true));
     }
 
     public function testWithPaginationDoesNotMutateOriginalPaginationState(): void

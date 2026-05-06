@@ -452,6 +452,10 @@ class DataSource implements ReadDataProviderInterface
     #[Override]
     public function isPaginated(): bool
     {
+        if (count($this->specifications) > 0) {
+            return false;
+        }
+
         if ($this->pagination === null) {
             return false;
         }
