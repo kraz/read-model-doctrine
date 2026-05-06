@@ -999,7 +999,7 @@ final class DataSourceTest extends TestCase
 
     public function testSpecificationsIteratorOnRawSqlReturnsMatchingItems(): void
     {
-        $result = $this->makeRawDs()->specificationsIterator([new AgeAboveSpecification(28)], limit: 2);
+        $result = $this->makeRawDs('SELECT * FROM test_entity r /*#WHERE#*/ ORDER BY r.id ASC')->specificationsIterator([new AgeAboveSpecification(28)], limit: 2);
 
         self::assertSame([1, 3], $this->ids($result));
     }
@@ -1069,7 +1069,7 @@ final class DataSourceTest extends TestCase
 
     public function testDataWithSpecAndLimitSpansMultipleBatchesRawSql(): void
     {
-        $ds = $this->makeRawDs()
+        $ds = $this->makeRawDs('SELECT * FROM test_entity r /*#WHERE#*/ ORDER BY r.id ASC')
             ->withSpecification(new AgeAboveSpecification(28))
             ->withLimit(3);
 
@@ -1119,7 +1119,7 @@ final class DataSourceTest extends TestCase
 
     public function testDataWithSpecAndLimitOnRawSqlRespectsOffset(): void
     {
-        $ds = $this->makeRawDs()
+        $ds = $this->makeRawDs('SELECT * FROM test_entity r /*#WHERE#*/ ORDER BY r.id ASC')
             ->withSpecification(new AgeAboveSpecification(28))
             ->withLimit(2, 1);
 
