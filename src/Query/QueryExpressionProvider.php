@@ -73,6 +73,12 @@ class QueryExpressionProvider implements QueryExpressionProviderInterface
         return $this->rootIdentifier;
     }
 
+    #[Override]
+    public function requireSingleRootIdentifier(): string
+    {
+        return \Kraz\ReadModel\Query\QueryExpressionHelper::requireSingleValueRootIdentifier($this->rootIdentifier);
+    }
+
     /**
      * @phpstan-param QueryBuilder|AbstractRawQuery<T> $data
      * @phpstan-param QueryExpressionHelperOptions $options
