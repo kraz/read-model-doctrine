@@ -607,6 +607,75 @@ final class DataSourceTest extends TestCase
         self::assertIsArray($result);
     }
 
+    public function testDataSortsOrmResultsByQueryExpressionValuesOrder(): void
+    {
+        $ds = $this->makeOrmDs()->withQueryExpression(QueryExpression::create()->withValues([3, 1, 2]));
+
+        self::assertSame([3, 1, 2], $this->ids($ds->data()));
+    }
+
+    public function testDataSortsRawSqlResultsByQueryExpressionValuesOrder(): void
+    {
+        $ds = new DataSource(
+            'SELECT * FROM test_entity r /*#WHERE#*/ ORDER BY r.id ASC',
+            null,
+            ['connection' => $this->connection],
+        );
+        $ds = $ds->withQueryExpression(QueryExpression::create()->withValues([3, 1, 2]));
+
+        self::assertSame([3, 1, 2], $this->ids($ds->data()));
+    }
+
+    public function testDataSortsWhenValuesOrderDiffersFromNaturalOrder(): void
+    {
+        $ds = $this->makeOrmDs()->withQueryExpression(QueryExpression::create()->withValues([5, 4, 3, 2, 1]));
+
+        self::assertSame([5, 4, 3, 2, 1], $this->ids($ds->data()));
+    }
+
+    public function testGetResultIsArraySortedByValuesOrder(): void
+    {
+        $ds     = $this->makeOrmDs()->withQueryExpression(QueryExpression::create()->withValues([3, 1, 2]));
+        $result = $ds->getResult();
+
+        self::assertIsArray($result);
+        self::assertSame([3, 1, 2], $this->ids($result));
+    }
+
+    public function testMultipleQueryExpressionsWithValuesMergeForOrmQuery(): void
+    {
+        $ds = $this->makeOrmDs();
+        $ds = $ds->withQueryExpression(QueryExpression::create()->withValues([3, 2]));
+        $ds = $ds->withQueryExpression(QueryExpression::create()->withValues([1]), true);
+
+        self::assertSame([3, 2, 1], $this->ids($ds->data()));
+    }
+
+    public function testMultipleQueryExpressionsWithValuesMergeForRawSqlQuery(): void
+    {
+        $ds = new DataSource(
+            'SELECT * FROM test_entity r /*#WHERE#*/ ORDER BY r.id ASC',
+            null,
+            ['connection' => $this->connection],
+        );
+        $ds = $ds->withQueryExpression(QueryExpression::create()->withValues([3, 2]));
+        $ds = $ds->withQueryExpression(QueryExpression::create()->withValues([1]), true);
+
+        self::assertSame([3, 2, 1], $this->ids($ds->data()));
+    }
+
+    public function testValuesWithFilterAndSortAreAppliedCorrectly(): void
+    {
+        $qe = QueryExpression::create()
+            ->andWhere(QueryExpression::create()->expr()->greaterThan('age', 28))
+            ->withValues([4, 1, 3]);
+
+        $ds = $this->makeOrmDs()->withQueryExpression($qe);
+
+        // age > 28 matches ids 1(30), 3(35), 4(40) — sorted by values order [4,1,3]
+        self::assertSame([4, 1, 3], $this->ids($ds->data()));
+    }
+
     // -------------------------------------------------------------------------
     // withQueryRequest
     // -------------------------------------------------------------------------

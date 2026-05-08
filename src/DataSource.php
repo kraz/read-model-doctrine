@@ -13,6 +13,7 @@ use Doctrine\ORM\QueryBuilder;
 use Doctrine\ORM\Tools\Pagination\Paginator;
 use InvalidArgumentException;
 use Kraz\ReadModel\Pagination\PaginatorInterface;
+use Kraz\ReadModel\Query\QueryExpression;
 use Kraz\ReadModel\Query\QueryExpressionProviderInterface;
 use Kraz\ReadModel\ReadDataProviderAccess;
 use Kraz\ReadModel\ReadDataProviderComposition;
@@ -21,6 +22,7 @@ use Kraz\ReadModel\ReadDataProviderInterface;
 use Kraz\ReadModel\ReadModelDescriptor;
 use Kraz\ReadModel\ReadModelDescriptorFactoryInterface;
 use Kraz\ReadModel\ReadResponse;
+use Kraz\ReadModel\Tools\CollectionUtils;
 use Kraz\ReadModelDoctrine\Pagination\DoctrinePaginator;
 use Kraz\ReadModelDoctrine\Pagination\RawSqlPaginator;
 use Kraz\ReadModelDoctrine\Query\AbstractRawQuery;
@@ -196,7 +198,10 @@ class DataSource implements ReadDataProviderInterface
 
     protected function createDefaultQueryExpressionProvider(ReadModelDescriptorFactoryInterface $factory): QueryExpressionProviderInterface
     {
-        return new QueryExpressionProvider($factory);
+        $provider = new QueryExpressionProvider($factory);
+        $provider->setRootIdentifier($this->options['root_identifier']);
+
+        return $provider;
     }
 
     /** @return AbstractRawQuery<T>|ORMQuery */
@@ -219,8 +224,29 @@ class DataSource implements ReadDataProviderInterface
         }
 
         $queryExpressionProvider = $this->getOrCreateQueryExpressionProvider();
-        foreach ([...$specQEs, ...$this->queryExpressions] as $item) {
-            $preparedDataSet = $queryExpressionProvider->apply($preparedDataSet, $item, null, $this->options);
+        $allQEs                  = [...$specQEs, ...$this->queryExpressions];
+        $mergedValues            = $this->collectInputValues();
+        if (count($mergedValues) > 0) {
+            foreach ($allQEs as $queryExpression) {
+                $preparedDataSet = $queryExpressionProvider->apply(
+                    $preparedDataSet,
+                    $queryExpression,
+                    null,
+                    $this->options,
+                    QueryExpressionProviderInterface::INCLUDE_DATA_FILTER | QueryExpressionProviderInterface::INCLUDE_DATA_SORT,
+                );
+            }
+
+            $preparedDataSet = $queryExpressionProvider->apply(
+                $preparedDataSet,
+                QueryExpression::create()->withValues($mergedValues),
+                null,
+                $this->options,
+            );
+        } else {
+            foreach ($allQEs as $item) {
+                $preparedDataSet = $queryExpressionProvider->apply($preparedDataSet, $item, null, $this->options);
+            }
         }
 
         $queryParts = null;
@@ -391,7 +417,15 @@ class DataSource implements ReadDataProviderInterface
     #[Override]
     public function data(): array
     {
-        return iterator_to_array($this->getIterator());
+        $data = iterator_to_array($this->getIterator());
+        if ($this->isValue()) {
+            $rootIdentifier = $this->getOrCreateQueryExpressionProvider()->requireSingleRootIdentifier();
+            $values         = $this->collectInputValues();
+
+            return CollectionUtils::sortByIndex($data, $rootIdentifier, $values);
+        }
+
+        return $data;
     }
 
     #[Override]
