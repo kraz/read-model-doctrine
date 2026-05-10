@@ -17,6 +17,8 @@ use Kraz\ReadModelDoctrine\Query\QueryExpressionProvider;
 use Kraz\ReadModelDoctrine\Query\RawNativeQuery;
 use Kraz\ReadModelDoctrine\Query\RawQuery;
 use Kraz\ReadModelDoctrine\Query\RawQueryBuilder;
+use LogicException;
+use Override;
 
 /**
  * @phpstan-import-type DataSourceOptionsWrapper from DataSource
@@ -113,15 +115,9 @@ class DataSourceBuilder implements ReadDataProviderCompositionInterface, ReadDat
         return $this->apply($dataSource);
     }
 
-    /**
-     * @phpstan-param array<string, string> $fieldsOperator
-     * @phpstan-param array<string, bool> $fieldsIgnoreCase
-     */
+    #[Override]
     public function handleRequest(object $request, array $fieldsOperator = [], array $fieldsIgnoreCase = []): static
     {
-        /** @phpstan-var static<T> $ds */
-        $ds =  DataSource::applyRequestTo($this, $request, $fieldsOperator, $fieldsIgnoreCase);
-
-        return $ds;
+        throw new LogicException('Unsupported operation. The data source builder can not handle requests.');
     }
 }

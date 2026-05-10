@@ -21,9 +21,9 @@ use Kraz\ReadModelDoctrine\Tests\Fixtures\UserReadModelFixture;
 use Kraz\ReadModelDoctrine\Tests\Tools\ORMTestKit;
 use Kraz\ReadModelDoctrine\Tools\ParametersCollection;
 use Kraz\ReadModelDoctrine\Tools\QueryParts;
+use LogicException;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
-use RuntimeException;
 use stdClass;
 
 use function intval;
@@ -274,9 +274,9 @@ final class DataSourceBuilderTest extends TestCase
         self::assertNotSame($builder, $builder->withDescriptorFactory($factory));
     }
 
-    public function testHandleRequestThrowsForUnsupportedType(): void
+    public function testHandleRequestThrowsLogicException(): void
     {
-        $this->expectException(RuntimeException::class);
+        $this->expectException(LogicException::class);
         $this->makeBuilder()->handleRequest(new stdClass());
     }
 
