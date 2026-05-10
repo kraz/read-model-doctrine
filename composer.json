@@ -19,7 +19,7 @@
     "require": {
         "php": ">=8.4",
         "doctrine/orm": "^3.6",
-        "kraz/read-model": "dev-main"
+        "kraz/read-model": "^1.0"
     },
     "require-dev": {
         "doctrine/coding-standard": "^14.0",
