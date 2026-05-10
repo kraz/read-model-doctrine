@@ -802,17 +802,23 @@ final class DataSourceTest extends TestCase
     // Specifications
     // -------------------------------------------------------------------------
 
+    public function testWithSpecificationWithoutLimitThrows(): void
+    {
+        $this->expectException(LogicException::class);
+        $this->makeOrmDs()->withSpecification(new NameEqualsSpecification('Alice'))->data();
+    }
+
     public function testWithSpecificationFiltersOrmResultsViaIsSatisfiedBy(): void
     {
         // NameEqualsSpecification has no QueryExpression → pure PHP-level filtering.
-        $ds = $this->makeOrmDs()->withSpecification(new NameEqualsSpecification('Alice'));
+        $ds = $this->makeOrmDs()->withLimit(100)->withSpecification(new NameEqualsSpecification('Alice'));
 
         self::assertSame([1], $this->ids($ds->data()));
     }
 
     public function testWithSpecificationFiltersRawSqlResultsViaIsSatisfiedBy(): void
     {
-        $ds = $this->makeRawDs()->withSpecification(new NameEqualsSpecification('Bob'));
+        $ds = $this->makeRawDs()->withLimit(100)->withSpecification(new NameEqualsSpecification('Bob'));
 
         self::assertSame([2], $this->ids($ds->data()));
     }
@@ -822,7 +828,7 @@ final class DataSourceTest extends TestCase
         // AgeAboveSpecification provides a QueryExpression that filters at DB level,
         // and also validates each item via isSatisfiedBy().
         // age > 28: Alice(30), Charlie(35), Dave(40), Eve(28) → ids 1, 3, 4
-        $ds = $this->makeOrmDs()->withSpecification(new AgeAboveSpecification(28));
+        $ds = $this->makeOrmDs()->withLimit(100)->withSpecification(new AgeAboveSpecification(28));
 
         self::assertSame([1, 3, 4], $this->ids($ds->data()));
     }
@@ -831,7 +837,7 @@ final class DataSourceTest extends TestCase
     {
         $ds = $this->makeRawDs(
             'SELECT * FROM test_entity r /*#WHERE#*/ ORDER BY r.id ASC',
-        )->withSpecification(new AgeAboveSpecification(28));
+        )->withLimit(100)->withSpecification(new AgeAboveSpecification(28));
 
         self::assertSame([1, 3, 4], $this->ids($ds->data()));
     }
@@ -839,6 +845,7 @@ final class DataSourceTest extends TestCase
     public function testMultipleSpecificationsAreCombinedWithAnd(): void
     {
         $ds = $this->makeOrmDs()
+            ->withLimit(100)
             ->withSpecification(new AgeAboveSpecification(28))
             ->withSpecification(new NameEqualsSpecification('Alice'), true);
 
@@ -859,7 +866,7 @@ final class DataSourceTest extends TestCase
         // QE filters by department=eng (ids 1, 2), spec filters name=Alice → id 1
         $ds = $this->makeOrmDs();
         $qe = QueryExpression::create()->andWhere($ds->expr()->equalTo('department', 'eng'));
-        $ds = $ds->withQueryExpression($qe)->withSpecification(new NameEqualsSpecification('Alice'));
+        $ds = $ds->withLimit(100)->withQueryExpression($qe)->withSpecification(new NameEqualsSpecification('Alice'));
 
         self::assertSame([1], $this->ids($ds->data()));
     }
@@ -868,7 +875,7 @@ final class DataSourceTest extends TestCase
     {
         // Not Alice → ids 2, 3, 4, 5
         $inverted = (new NameEqualsSpecification('Alice'))->invert();
-        $ds       = $this->makeOrmDs()->withSpecification($inverted);
+        $ds       = $this->makeOrmDs()->withLimit(100)->withSpecification($inverted);
 
         self::assertSame([2, 3, 4, 5], $this->ids($ds->data()));
     }
@@ -892,6 +899,7 @@ final class DataSourceTest extends TestCase
     public function testWithoutSpecificationUndoRestoresPreviousStack(): void
     {
         $ds = $this->makeOrmDs()
+            ->withLimit(100)
             ->withSpecification(new AgeAboveSpecification(28))
             ->withSpecification(new NameEqualsSpecification('Alice'), true);
 
@@ -1219,10 +1227,10 @@ final class DataSourceTest extends TestCase
 
     public function testDataWithSpecAndLimitDoesNotMutateOriginal(): void
     {
-        $original = $this->makeOrmDs()->withSpecification(new AgeAboveSpecification(28));
+        $original = $this->makeOrmDs()->withLimit(100)->withSpecification(new AgeAboveSpecification(28));
         $original->withLimit(1);
 
-        // The original (no limit) should still return all 3 matching items.
+        // The original (limit=100) should still return all 3 matching items.
         self::assertSame([1, 3, 4], $this->ids($original->data()));
     }
 
