@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Kraz\ReadModelDoctrine\Query;
 
 use Doctrine\ORM\QueryBuilder;
+use InvalidArgumentException;
 use Kraz\ReadModel\Query\QueryExpression;
 use Kraz\ReadModel\Query\QueryExpressionProviderInterface;
 use Kraz\ReadModel\ReadModelDescriptor;
@@ -83,12 +84,41 @@ class QueryExpressionProvider implements QueryExpressionProviderInterface
      * @phpstan-param QueryBuilder|AbstractRawQuery<T> $data
      * @phpstan-param QueryExpressionHelperOptions $options
      *
+     * @phpstan-template T of object|array<string, mixed>
+     */
+    #[Override]
+    public function mapField(string $field, mixed $data = null, ReadModelDescriptor|null $descriptor = null, array $options = []): string
+    {
+        if ($data === null) {
+            throw new InvalidArgumentException('Invalid data! Can not map field.');
+        }
+
+        return $this->createHelper($data, $descriptor, $options)->mapField($field);
+    }
+
+    /**
+     * @phpstan-param QueryBuilder|AbstractRawQuery<T> $data
+     * @phpstan-param QueryExpressionHelperOptions $options
+     *
      * @phpstan-return ($data is QueryBuilder ? QueryBuilder : AbstractRawQuery<T>)
      *
      * @phpstan-template T of object|array<string, mixed>
      */
     #[Override]
     public function apply(mixed $data, QueryExpression $queryExpression, ReadModelDescriptor|null $descriptor = null, array $options = [], int $includeData = self::INCLUDE_DATA_ALL): QueryBuilder|AbstractRawQuery
+    {
+        return $this->createHelper($data, $descriptor, $options)->apply($queryExpression, $includeData);
+    }
+
+    /**
+     * @phpstan-param QueryBuilder|AbstractRawQuery<T> $data
+     * @phpstan-param QueryExpressionHelperOptions $options
+     *
+     * @phpstan-return QueryExpressionHelper<T>
+     *
+     * @phpstan-template T of object|array<string, mixed>
+     */
+    private function createHelper(mixed $data, ReadModelDescriptor|null $descriptor = null, array $options = []): QueryExpressionHelper
     {
         $optDescriptor = $options['read_model_descriptor'] ?? null;
         if ($descriptor === null && is_string($optDescriptor)) {
@@ -120,6 +150,6 @@ class QueryExpressionProvider implements QueryExpressionProviderInterface
         /** @phpstan-var QueryExpressionHelper<T> $helper */
         $helper = QueryExpressionHelper::create($data, $descriptor, $options);
 
-        return $helper->apply($queryExpression, $includeData);
+        return $helper;
     }
 }

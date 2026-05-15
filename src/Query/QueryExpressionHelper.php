@@ -180,7 +180,7 @@ final class QueryExpressionHelper
         return $quoteChar . str_replace($quoteChar, $quoteChar . $quoteChar, $str) . $quoteChar;
     }
 
-    private function mapField(string $field): string
+    public function mapField(string $field): string
     {
         $fieldMap = $this->getFieldMap();
 
