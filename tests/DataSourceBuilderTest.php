@@ -281,36 +281,36 @@ final class DataSourceBuilderTest extends TestCase
     }
 
     // -------------------------------------------------------------------------
-    // andWhere / orWhere / sortBy — mutable fluent methods
+    // andWhere / orWhere / sortBy — immutable methods
     // -------------------------------------------------------------------------
 
-    public function testAndWhereReturnsSameBuilderInstance(): void
+    public function testAndWhereReturnsNewBuilderInstance(): void
     {
         $builder = $this->makeBuilder();
         $expr    = FilterExpression::create()->equalTo('name', 'Alice');
 
-        self::assertSame($builder, $builder->andWhere($expr));
+        self::assertNotSame($builder, $builder->andWhere($expr));
     }
 
-    public function testOrWhereReturnsSameBuilderInstance(): void
+    public function testOrWhereReturnsNewBuilderInstance(): void
     {
         $builder = $this->makeBuilder();
         $expr    = FilterExpression::create()->equalTo('name', 'Alice');
 
-        self::assertSame($builder, $builder->orWhere($expr));
+        self::assertNotSame($builder, $builder->orWhere($expr));
     }
 
-    public function testSortByReturnsSameBuilderInstance(): void
+    public function testSortByReturnsNewBuilderInstance(): void
     {
         $builder = $this->makeBuilder();
 
-        self::assertSame($builder, $builder->sortBy('name'));
+        self::assertNotSame($builder, $builder->sortBy('name'));
     }
 
     public function testAndWhereFiltersResultsOnCreate(): void
     {
-        $builder = $this->makeBuilder()->withData($this->makeSql());
-        $builder->andWhere(FilterExpression::create()->equalTo('department', 'eng'));
+        $builder = $this->makeBuilder()->withData($this->makeSql())
+            ->andWhere(FilterExpression::create()->equalTo('department', 'eng'));
 
         $ds = $builder->create($this->connection);
 
@@ -318,17 +318,15 @@ final class DataSourceBuilderTest extends TestCase
     }
 
     /**
-     * Passing multiple FilterExpressions to a single andWhere call creates a
-     * conjunction. By contrast, calling andWhere twice replaces the filter —
-     * see testSubsequentAndWhereCallReplacesFilter.
+     * Passing multiple FilterExpressions to a single andWhere call creates a conjunction.
      */
     public function testAndWhereWithMultipleExpressionsAppliesConjunction(): void
     {
-        $builder = $this->makeBuilder()->withData($this->makeSql());
-        $builder->andWhere(
-            FilterExpression::create()->equalTo('department', 'eng'),
-            FilterExpression::create()->greaterThan('age', 26),
-        );
+        $builder = $this->makeBuilder()->withData($this->makeSql())
+            ->andWhere(
+                FilterExpression::create()->equalTo('department', 'eng'),
+                FilterExpression::create()->greaterThan('age', 26),
+            );
 
         $ds = $builder->create($this->connection);
 
@@ -337,29 +335,27 @@ final class DataSourceBuilderTest extends TestCase
     }
 
     /**
-     * Each call to andWhere / orWhere on the builder replaces the entire filter
-     * because QueryExpression::andWhere always creates a fresh FilterExpression.
-     * To combine conditions conjunctively, pass them all in one andWhere call.
+     * Each call to andWhere appends a new query expression, so both filters are active.
      */
-    public function testSubsequentAndWhereCallReplacesFilter(): void
+    public function testSubsequentAndWhereCallsAccumulateFilters(): void
     {
-        $builder = $this->makeBuilder()->withData($this->makeSql());
-        $builder->andWhere(FilterExpression::create()->equalTo('name', 'Alice'));
-        $builder->andWhere(FilterExpression::create()->greaterThan('age', 26)); // replaces the first
+        $builder = $this->makeBuilder()->withData($this->makeSql())
+            ->andWhere(FilterExpression::create()->equalTo('name', 'Alice'))
+            ->andWhere(FilterExpression::create()->greaterThan('age', 26));
 
         $ds = $builder->create($this->connection);
 
-        // Only the second filter is active: age > 26 → ids 1, 3, 4, 5
-        self::assertSame([1, 3, 4, 5], $this->ids($ds->data()));
+        // Both filters active: name='Alice' AND age > 26 → Alice (age 30) → [1]
+        self::assertSame([1], $this->ids($ds->data()));
     }
 
     public function testOrWhereWithMultipleExpressionsAppliesDisjunction(): void
     {
-        $builder = $this->makeBuilder()->withData($this->makeSql());
-        $builder->orWhere(
-            FilterExpression::create()->equalTo('name', 'Alice'),
-            FilterExpression::create()->equalTo('name', 'Bob'),
-        );
+        $builder = $this->makeBuilder()->withData($this->makeSql())
+            ->orWhere(
+                FilterExpression::create()->equalTo('name', 'Alice'),
+                FilterExpression::create()->equalTo('name', 'Bob'),
+            );
 
         $ds = $builder->create($this->connection);
 
@@ -367,19 +363,15 @@ final class DataSourceBuilderTest extends TestCase
     }
 
     /**
-     * Because andWhere/orWhere/sortBy mutate the builder while with* methods return a clone,
-     * calling andWhere on the original after a withData clone has already been created
-     * does NOT affect the clone.
+     * andWhere does not mutate the original builder — the returned clone carries the filter.
      */
-    public function testAndWhereAfterWithDataDoesNotAffectEarlierClone(): void
+    public function testAndWhereDoesNotMutateOriginalBuilder(): void
     {
-        $builder         = $this->makeBuilder();
-        $builderWithData = $builder->withData($this->makeSql()); // clone created here
+        $builder  = $this->makeBuilder()->withData($this->makeSql());
+        $filtered = $builder->andWhere(FilterExpression::create()->equalTo('name', 'Alice'));
 
-        // This mutates $builder AFTER the clone was taken, so the clone is unaffected.
-        $builder->andWhere(FilterExpression::create()->equalTo('name', 'Alice'));
-
-        self::assertCount(5, $builderWithData->create($this->connection)->data());
+        self::assertCount(5, $builder->create($this->connection)->data());
+        self::assertSame([1], $this->ids($filtered->create($this->connection)->data()));
     }
 
     // -------------------------------------------------------------------------
