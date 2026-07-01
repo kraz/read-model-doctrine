@@ -86,7 +86,7 @@ class QueryParts implements Stringable
         if ($append && $isMultiple) {
             if (is_array($part)) {
                 $key = key($part);
-                /** @phpstan-ignore offsetAccess.invalidOffset,offsetAccess.invalidOffset */
+
                 $this->parts[$partName][$key][] = $part[$key];
             } else {
                 $this->parts[$partName][] = $part;
