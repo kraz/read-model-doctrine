@@ -576,8 +576,17 @@ class DataSource implements ReadDataProviderInterface
         $iter           = $executable instanceof ORMQuery
             ? $executable->toIterable([], $this->options['hydrator'])
             : $executable->toIterable();
-        foreach ($iter as $row) {
-            $rows[] = $hasNormalizer ? $itemNormalizer($row) : $row;
+
+        if ($hasNormalizer && $executable instanceof ORMQuery) {
+            // Explicitly call the item normalizer for every item from the ORM Query
+            foreach ($iter as $row) {
+                $rows[] = $itemNormalizer($row);
+            }
+        } else {
+            // The item normalizer was already called (if any) from `AbstractRawQuery.toIterable()`
+            foreach ($iter as $row) {
+                $rows[] = $row;
+            }
         }
 
         /** @phpstan-var list<T> $rows */

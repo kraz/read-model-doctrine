@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Kraz\ReadModelDoctrine\Tests;
 
+use Doctrine\DBAL\Connection;
 use Doctrine\ORM\AbstractQuery;
 use Doctrine\ORM\EntityManagerInterface;
 use Kraz\ReadModel\CursorReadResponse;
@@ -20,6 +21,7 @@ use Kraz\ReadModelDoctrine\Tests\Fixtures\TestEntity;
 use Kraz\ReadModelDoctrine\Tests\Tools\ORMTestKit;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
+use stdClass;
 
 use function array_column;
 use function array_map;
@@ -31,11 +33,13 @@ use function substr;
 final class DataSourceCursorTest extends TestCase
 {
     private EntityManagerInterface $em;
+    private Connection $connection;
 
     protected function setUp(): void
     {
-        $this->em   = ORMTestKit::createEntityManager();
-        $connection = $this->em->getConnection();
+        $this->em         = ORMTestKit::createEntityManager();
+        $this->connection = $this->em->getConnection();
+        $connection       = $this->connection;
         // Seven rows so several page-boundary scenarios are visible.
         $rows = [
             [1, 'Anna', 'a@example.com', 'eng', 20, 1],
@@ -241,5 +245,45 @@ final class DataSourceCursorTest extends TestCase
 
         $this->expectException(InvalidCursorException::class);
         $ds->withCursor($tampered, 3)->cursorPaginator();
+    }
+
+    public function testCursorPaginatorWithRawQueryAppliesNormalizerExactlyOnce(): void
+    {
+        $callCount = 0;
+
+        /** @phpstan-var DataSource<stdClass> $ds */
+        $ds = new DataSource(
+            'SELECT * FROM test_entity r /*#WHERE#*/ /*#ORDERBY#*/',
+            null,
+            [
+                'connection'      => $this->connection,
+                'root_alias'      => 'r',
+                'root_identifier' => 'id',
+                'item_normalizer' => static function (array $row) use (&$callCount): stdClass {
+                    $callCount++;
+                    $obj     = new stdClass();
+                    $obj->id = (int) $row['id'];
+
+                    return $obj;
+                },
+            ],
+        );
+
+        $paginator = $ds->withCursor(null, 3)->cursorPaginator();
+
+        self::assertNotNull($paginator);
+
+        $rows = iterator_to_array($paginator->getIterator(), false);
+
+        self::assertCount(3, $rows);
+        self::assertContainsOnlyInstancesOf(stdClass::class, $rows);
+        self::assertSame([1, 2, 3], array_map(static fn (stdClass $r): int => $r->id, $rows));
+        // The normalizer must be called exactly once per fetched row. cursorPaginator() fetches
+        // limit + 1 rows to detect "has next page", so for limit=3 with more rows available the
+        // count is 4. Before the fix it was called twice per row — once inside
+        // AbstractRawQuery::toIterable() and once in the cursorPaginator() loop — which would
+        // pass the already-converted stdClass back into a callable typed to receive array,
+        // causing a TypeError.
+        self::assertSame(4, $callCount, 'item_normalizer must be invoked exactly once per fetched row');
     }
 }
