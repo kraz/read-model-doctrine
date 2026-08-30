@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Kraz\ReadModelDoctrine\Query;
 
+use Doctrine\DBAL\ParameterType;
 use Doctrine\DBAL\Platforms\AbstractPlatform;
 use Doctrine\DBAL\Platforms\OraclePlatform;
 use Doctrine\ORM\Query\Expr;
@@ -31,6 +32,7 @@ use function gettype;
 use function implode;
 use function in_array;
 use function is_array;
+use function is_bool;
 use function is_scalar;
 use function is_string;
 use function mb_strlen;
@@ -239,8 +241,9 @@ final class QueryExpressionHelper
 
         static $paramId = 0;
 
-        $ignoreCaseDefault = ! isset($filter['ignoreCase']);
-        $ignoreCase        = ! isset($filter['ignoreCase']) || (bool) $filter['ignoreCase'];
+        $hasIgnoreCaseSet  = isset($filter['ignoreCase']);
+        $ignoreCaseDefault = ! $hasIgnoreCaseSet;
+        $ignoreCase        = ! $hasIgnoreCaseSet || (bool) $filter['ignoreCase'];
 
         if (! isset($filter['field'])) {
             throw new RuntimeException('Missing filter filed');
@@ -264,7 +267,7 @@ final class QueryExpressionHelper
             }
 
             $paramValue      = $filter['value'];
-            $paramValueUpper = $ignoreCase && is_scalar($paramValue) ? mb_strtoupper((string) $paramValue, 'UTF-8') : $paramValue;
+            $paramValueUpper = $ignoreCase && is_scalar($paramValue) && ($hasIgnoreCaseSet || ! is_bool($paramValue)) ? mb_strtoupper((string) $paramValue, 'UTF-8') : $paramValue;
         }
 
         $fieldEx = $field;
@@ -502,7 +505,11 @@ final class QueryExpressionHelper
         }
 
         foreach ($params as $paramName => $paramValue) {
-            $data->setParameter($paramName, $paramValue);
+            if (is_bool($paramValue)) {
+                $data->setParameter($paramName, $paramValue, ParameterType::BOOLEAN);
+            } else {
+                $data->setParameter($paramName, $paramValue);
+            }
         }
 
         return $data;
