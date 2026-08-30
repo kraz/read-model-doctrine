@@ -371,11 +371,6 @@ class DataSource implements ReadDataProviderInterface
             return null;
         }
 
-        [$page, $itemsPerPage] = $this->pagination;
-        if ($page === null || $itemsPerPage === null) {
-            return null;
-        }
-
         $query = $this->getQuery();
 
         $paginator = null;
