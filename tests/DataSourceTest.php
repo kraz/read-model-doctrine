@@ -1000,6 +1000,70 @@ final class DataSourceTest extends TestCase
     }
 
     // -------------------------------------------------------------------------
+    // List mode — DB-level enforcement
+    // -------------------------------------------------------------------------
+
+    public function testListModeReturnsTheWholeOrmResultSet(): void
+    {
+        $ds = $this->makeOrmDs()->withList();
+
+        self::assertTrue($ds->isList());
+        self::assertFalse($ds->isPaginated());
+        self::assertNull($ds->paginator());
+        self::assertIsArray($ds->getResult());
+        self::assertSame([1, 2, 3, 4, 5], $this->ids($ds->getListResult()));
+        self::assertSame(5, $ds->totalCount());
+    }
+
+    public function testListModeAppliesNoLimitToTheOrmQuery(): void
+    {
+        $query = $this->makeOrmDs()->withList()->getQuery();
+
+        self::assertInstanceOf(ORMQuery::class, $query);
+        self::assertNull($query->getMaxResults());
+    }
+
+    public function testListModeCapIsAppliedAsMaxResults(): void
+    {
+        $ds = $this->makeOrmDs()->withList(2);
+
+        $query = $ds->getQuery();
+        self::assertInstanceOf(ORMQuery::class, $query);
+        self::assertSame(2, $query->getMaxResults());
+        self::assertSame([1, 2], $this->ids($ds->getListResult()));
+        self::assertSame(5, $ds->totalCount());
+    }
+
+    public function testListModeReturnsTheWholeRawSqlResultSet(): void
+    {
+        $ds = $this->makeRawDs()->withList();
+
+        self::assertTrue($ds->isList());
+        self::assertSame([1, 2, 3, 4, 5], $this->ids($ds->getListResult()));
+        self::assertSame(5, $ds->totalCount());
+    }
+
+    public function testListModeCapIsAppliedToRawSql(): void
+    {
+        $ds = $this->makeRawDs()->withList(3);
+
+        self::assertSame([1, 2, 3], $this->ids($ds->getListResult()));
+        self::assertSame(5, $ds->totalCount());
+    }
+
+    public function testListModeAndPaginationAreMutuallyExclusive(): void
+    {
+        $fromPagination = $this->makeOrmDs()->withPagination(2, 2)->withList();
+        self::assertFalse($fromPagination->isPaginated());
+        self::assertSame([1, 2, 3, 4, 5], $this->ids($fromPagination->getListResult()));
+
+        $fromList = $this->makeOrmDs()->withList()->withPagination(2, 2);
+        self::assertFalse($fromList->isList());
+        self::assertTrue($fromList->isPaginated());
+        self::assertInstanceOf(ReadResponse::class, $fromList->getResult());
+    }
+
+    // -------------------------------------------------------------------------
     // withLimit / withoutLimit — DB-level enforcement
     // -------------------------------------------------------------------------
 
