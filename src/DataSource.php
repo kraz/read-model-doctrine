@@ -786,10 +786,10 @@ class DataSource implements ReadDataProviderInterface
      * @phpstan-param array<string, bool> $fieldsIgnoreCase
      */
     #[Override]
-    public function handleRequest(object $request, array $fieldsOperator = [], array $fieldsIgnoreCase = []): static
+    public function handleRequest(object $request, array $fieldsOperator = [], array $fieldsIgnoreCase = [], bool $append = false): static
     {
         /** @phpstan-var static<T> $ds */
-        $ds = static::applyRequestTo($this, $request, $fieldsOperator, $fieldsIgnoreCase);
+        $ds = static::applyRequestTo($this, $request, $fieldsOperator, $fieldsIgnoreCase, $append);
 
         return $ds;
     }
@@ -803,7 +803,7 @@ class DataSource implements ReadDataProviderInterface
      *
      * @phpstan-template J of ReadDataProviderCompositionInterface<object|array<string, mixed>>
      */
-    public static function applyRequestTo(ReadDataProviderCompositionInterface $target, object $request, array $fieldsOperator = [], array $fieldsIgnoreCase = []): ReadDataProviderCompositionInterface
+    public static function applyRequestTo(ReadDataProviderCompositionInterface $target, object $request, array $fieldsOperator = [], array $fieldsIgnoreCase = [], bool $append = false): ReadDataProviderCompositionInterface
     {
         if (class_exists(SymfonyRequest::class) && $request instanceof SymfonyRequest) {
             if (! class_exists(Psr17Factory::class)) {
@@ -822,7 +822,7 @@ class DataSource implements ReadDataProviderInterface
              * @phpstan-var J $result
              * @phpstan-ignore argument.type
              */
-            $result = $target->handleInput($input, $fieldsOperator, $fieldsIgnoreCase);
+            $result = $target->handleInput($input, $fieldsOperator, $fieldsIgnoreCase, $append);
 
             return $result;
         }

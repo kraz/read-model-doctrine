@@ -26,14 +26,18 @@ use Kraz\ReadModelDoctrine\Tests\Tools\ORMTestKit;
 use Kraz\ReadModelDoctrine\Tools\ParametersCollection;
 use Kraz\ReadModelDoctrine\Tools\QueryParts;
 use LogicException;
+use Nyholm\Psr7\Request;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
 use stdClass;
 
+use function base64_encode;
 use function intval;
 use function is_array;
 use function iterator_to_array;
+use function json_encode;
+use function urlencode;
 
 #[CoversClass(DataSource::class)]
 #[CoversClass(ReadDataProviderAccess::class)]
@@ -737,6 +741,35 @@ final class DataSourceTest extends TestCase
     {
         $this->expectException(RuntimeException::class);
         $this->makeOrmDs()->handleRequest(new stdClass());
+    }
+
+    public function testHandleRequestReplacesQueryExpressionByDefault(): void
+    {
+        $current = QueryExpression::create();
+        $current = $current->andWhere($current->expr()->equalTo('department', 'eng'));
+
+        $ds = $this->makeOrmDs()->withQueryExpression($current);
+
+        self::assertCount(1, $ds->handleRequest($this->makeQueryRequest())->queryExpressions());
+    }
+
+    public function testHandleRequestAppendsQueryExpressionWhenAppendIsTrue(): void
+    {
+        $current = QueryExpression::create();
+        $current = $current->andWhere($current->expr()->equalTo('department', 'eng'));
+
+        $ds = $this->makeOrmDs()->withQueryExpression($current);
+
+        self::assertCount(2, $ds->handleRequest($this->makeQueryRequest(), [], [], true)->queryExpressions());
+    }
+
+    /** Builds a PSR-7 request carrying a single query expression in its query string. */
+    private function makeQueryRequest(): Request
+    {
+        $qry = QueryExpression::create();
+        $qry = $qry->andWhere($qry->expr()->equalTo('age', 30));
+
+        return new Request('GET', '/?query=' . urlencode(base64_encode((string) json_encode($qry->toArray()))));
     }
 
     // -------------------------------------------------------------------------
