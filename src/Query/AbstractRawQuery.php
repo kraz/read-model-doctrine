@@ -8,6 +8,7 @@ use Closure;
 use Doctrine\DBAL\ArrayParameterType;
 use Doctrine\DBAL\Connection;
 use Doctrine\DBAL\ParameterType;
+use Doctrine\DBAL\Platforms\AbstractMySQLPlatform;
 use Doctrine\DBAL\Platforms\AbstractPlatform as AbstractDatabasePlatform;
 use Doctrine\DBAL\Result as DBALResult;
 use Kraz\ReadModelDoctrine\Exception;
@@ -51,6 +52,7 @@ use const PHP_EOL;
  *     database_platform_class: array<string, class-string<AbstractDatabasePlatform>>,
  *     sql_formatter: SqlFormatterOptions,
  *     use_count_cache: bool,
+ *     strip_count_order_by: bool,
  *     item_normalizer: callable|null,
  *  }
  * @phpstan-type AbstractRawQueryOptionsWrapper = AbstractRawQueryOptions|array<never, never>
@@ -91,6 +93,7 @@ abstract class AbstractRawQuery
             'database_platform_class' => [/* 'oracle' => Platforms\OraclePlatform::class, */],
             'sql_formatter' => [],
             'use_count_cache' => true,
+            'strip_count_order_by' => true,
             'item_normalizer' => null,
         ];
     }
@@ -243,7 +246,7 @@ abstract class AbstractRawQuery
     {
         $countSql = $this->countSql;
         if ($countSql === null) {
-            $sql = $this->getExtendedSql();
+            $sql = $this->getCountBaseSql();
             if ($sql) {
                 $countSql = 'SELECT COUNT(*) FROM (' . PHP_EOL . $sql . PHP_EOL . ') raw_cnt_query';
             }
@@ -253,16 +256,45 @@ abstract class AbstractRawQuery
     }
 
     /**
+     * Get the SQL the count query wraps: the extended SQL without its top-level ORDER BY clause.
+     *
+     * Sorting does not change the number of rows, yet it often makes the database sort on columns lacking
+     * a suitable index. The clause is kept when the "strip_count_order_by" option is disabled.
+     */
+    protected function getCountBaseSql(): string
+    {
+        if (! ($this->options['strip_count_order_by'] ?? true)) {
+            return $this->getExtendedSql();
+        }
+
+        // The raw SQL is stripped before the parts are applied: applying them may wrap it in a derived table,
+        // which would nest its ORDER BY clause.
+        $sql = $this->getSql();
+        if ($sql !== '') {
+            $mySqlStringEscaping = $this->getDatabasePlatform() instanceof AbstractMySQLPlatform;
+            $sql                 = new Tools\SqlOrderByStripper($mySqlStringEscaping)->strip($sql);
+        }
+
+        $parts = clone $this->sqlEx;
+        $parts->resetQueryPart('orderBy');
+
+        return $this->formatSqlParts($sql, $parts);
+    }
+
+    /**
      * Get an extended version of the query SQL, after applying the rules from the sql() parts.
      */
     public function getExtendedSql(): string
     {
-        $sql = $this->getSql();
+        return $this->formatSqlParts($this->getSql(), $this->sqlEx);
+    }
 
+    private function formatSqlParts(string $sql, Tools\QueryParts $parts): string
+    {
         $opt       = $this->getOptions();
         $formatter = new Tools\SqlFormatter($opt['sql_formatter'] ?? []);
 
-        return $formatter->formatSqlParts($sql, $this->sqlEx);
+        return $formatter->formatSqlParts($sql, $parts);
     }
 
     protected function getExecuteSql(): string

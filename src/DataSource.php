@@ -86,6 +86,7 @@ use function sprintf;
  *     database_platform_class: array<string, class-string<AbstractDatabasePlatform>>,
  *     sql_formatter: SqlFormatterOptions,
  *     use_count_cache: bool,
+ *     strip_count_order_by: bool,
  * }
  * @phpstan-type DataSourceOptionsWrapper = DataSourceOptions|array<never, never>
  * @phpstan-template-covariant T of object|array<string, mixed>
@@ -137,6 +138,7 @@ class DataSource implements ReadDataProviderInterface
             'database_platform_class' => [],
             'sql_formatter' => [],
             'use_count_cache' => true,
+            'strip_count_order_by' => true,
         ], $options);
 
         $this->options = $options;
