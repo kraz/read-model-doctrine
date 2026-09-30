@@ -6,6 +6,8 @@ namespace Kraz\ReadModelDoctrine\Tests;
 
 use Doctrine\DBAL\Connection;
 use Doctrine\ORM\EntityManagerInterface;
+use Kraz\ReadModel\Query\QueryExpression;
+use Kraz\ReadModel\Query\SortExpression;
 use Kraz\ReadModelDoctrine\Query\AbstractRawQuery;
 use Kraz\ReadModelDoctrine\RawQueryReadDataProvider;
 use Kraz\ReadModelDoctrine\Tests\Fixtures\UserSQLReadModelFixture;
@@ -94,6 +96,40 @@ final class RawQueryReadDataProviderTest extends TestCase
     public function testDefaultOrderById(): void
     {
         $rm = new UserSQLReadModelFixture($this->connection);
+
+        self::assertSame([1, 2, 3, 4, 5], $this->ids($rm->data()));
+    }
+
+    public function testDefaultOrderIsOverriddenBySortExpression(): void
+    {
+        $rm = new UserSQLReadModelFixture($this->connection)
+            ->withQueryExpression(
+                QueryExpression::create()->sortBy(UserSQLReadModelFixture::FIELD_ID, SortExpression::DIR_DESC),
+            );
+
+        self::assertSame([5, 4, 3, 2, 1], $this->ids($rm->data()));
+    }
+
+    public function testSortOverrideCombinesWithFilterAndPagination(): void
+    {
+        // olderThan25 → ids 1, 3, 4, 5. Sorted by id desc → 5, 4, 3, 1. Page 1, 2 per page → 5, 4.
+        $rm = new UserSQLReadModelFixture($this->connection)
+            ->olderThan25()
+            ->withQueryExpression(
+                QueryExpression::create()->sortBy(UserSQLReadModelFixture::FIELD_ID, SortExpression::DIR_DESC),
+            )
+            ->withPagination(1, 2);
+
+        self::assertSame([5, 4], $this->ids($rm->data()));
+        self::assertSame(4, $rm->totalCount());
+    }
+
+    public function testSortOverrideDoesNotMutateOriginal(): void
+    {
+        $rm = new UserSQLReadModelFixture($this->connection);
+        $rm->withQueryExpression(
+            QueryExpression::create()->sortBy(UserSQLReadModelFixture::FIELD_ID, SortExpression::DIR_DESC),
+        );
 
         self::assertSame([1, 2, 3, 4, 5], $this->ids($rm->data()));
     }

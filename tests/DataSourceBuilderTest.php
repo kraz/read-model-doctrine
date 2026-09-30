@@ -11,6 +11,7 @@ use Kraz\ReadModel\Query\FilterExpression;
 use Kraz\ReadModel\Query\QueryExpression;
 use Kraz\ReadModel\Query\QueryExpressionProviderInterface;
 use Kraz\ReadModel\Query\QueryRequest;
+use Kraz\ReadModel\Query\SortExpression;
 use Kraz\ReadModel\ReadModelDescriptor;
 use Kraz\ReadModel\ReadModelDescriptorFactoryInterface;
 use Kraz\ReadModelDoctrine\DataSourceBuilder;
@@ -773,6 +774,41 @@ final class DataSourceBuilderTest extends TestCase
 
         self::assertSame([1], $this->ids($rm));
         self::assertSame([1], $this->ids($rm->data()));
+        self::assertSame(2, $rm->totalCount());
+    }
+
+    public function testUserReadModelFixtureUsesDefaultOrderById(): void
+    {
+        $rm = new UserReadModelFixture($this->connection);
+
+        self::assertSame([1, 2, 3, 4, 5], $this->ids($rm));
+        self::assertSame([1, 2, 3, 4, 5], $this->ids($rm->data()));
+    }
+
+    public function testUserReadModelFixtureOverridesDefaultOrderBySortExpression(): void
+    {
+        $rm = new UserReadModelFixture($this->connection)
+            ->withQueryExpression(
+                QueryExpression::create()->sortBy(UserReadModelFixture::FIELD_ID, SortExpression::DIR_DESC),
+            );
+
+        self::assertSame([5, 4, 3, 2, 1], $this->ids($rm));
+        self::assertSame([5, 4, 3, 2, 1], $this->ids($rm->data()));
+    }
+
+    public function testUserReadModelFixtureCombinesSortOverrideWithFilterAndPagination(): void
+    {
+        // sales has Charlie (3) and Dave (4). Sorted by id desc → 4, 3. Page 1 of 1 per page → only Dave.
+        $rm = new UserReadModelFixture($this->connection)
+            ->withQueryExpression(
+                QueryExpression::create()
+                    ->andWhere(FilterExpression::create()->equalTo(UserReadModelFixture::FIELD_DEPARTMENT, 'sales'))
+                    ->sortBy(UserReadModelFixture::FIELD_ID, SortExpression::DIR_DESC),
+            )
+            ->withPagination(1, 1);
+
+        self::assertSame([4], $this->ids($rm));
+        self::assertSame([4], $this->ids($rm->data()));
         self::assertSame(2, $rm->totalCount());
     }
 }

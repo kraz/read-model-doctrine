@@ -61,7 +61,7 @@ final class UserSQLReadModelFixture implements ReadDataProviderInterface
             ) r
             WHERE r.age > :p_age
             /*#WHERE_B#*/AND 0=0/*#WHERE_E#*/
-            /*#ORDERBY_B#*/ORDER BY r.id ASC/*#ORDERBY_E#*/
+            ORDER BY /*#ORDERBY_B#*/r.id ASC/*#ORDERBY_E#*/
         SQL, new ParametersCollection()
             ->setParameter('p_age', 0, DBType::INTEGER));
     }

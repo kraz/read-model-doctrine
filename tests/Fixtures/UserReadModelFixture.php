@@ -57,7 +57,7 @@ final class UserReadModelFixture implements ReadDataProviderInterface
                     FROM test_entity t
                 ) r
                 /*#WHERE#*/
-                /*#ORDERBY_B#*/ORDER BY r.id ASC/*#ORDERBY_E#*/
+                ORDER BY /*#ORDERBY_B#*/r.id ASC/*#ORDERBY_E#*/
             SQL)
             ->create($this->connection);
 

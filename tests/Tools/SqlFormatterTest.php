@@ -123,6 +123,41 @@ final class SqlFormatterTest extends TestCase
         self::assertSame('SELECT * FROM users  ORDER BY name ASC', $result);
     }
 
+    public function testOrderBySectionKeepsDefaultContentWhenValueEmpty(): void
+    {
+        $formatter = new SqlFormatter();
+        $sql       = 'SELECT * FROM users r ORDER BY /*#ORDERBY_B#*/r.id ASC/*#ORDERBY_E#*/';
+
+        $result = $formatter->formatSqlOrderBy($sql, '');
+
+        // Section markers must be removed and the default order by preserved.
+        self::assertSame('SELECT * FROM users r ORDER BY r.id ASC', $result);
+    }
+
+    public function testOrderBySectionReplacesOnlyTheContentBetweenTheMarkers(): void
+    {
+        $formatter = new SqlFormatter();
+        $sql       = 'SELECT * FROM users r ORDER BY /*#ORDERBY_B#*/r.id ASC/*#ORDERBY_E#*/';
+
+        $result = $formatter->formatSqlOrderBy($sql, 'r.name DESC');
+
+        // The ORDER BY keyword stays outside the section, only the default expression is replaced.
+        self::assertSame('SELECT * FROM users r ORDER BY r.name DESC', $result);
+    }
+
+    public function testOrderBySectionWrappingTheKeywordLosesItOnOverride(): void
+    {
+        $formatter = new SqlFormatter();
+        $sql       = 'SELECT * FROM users r /*#ORDERBY_B#*/ORDER BY r.id ASC/*#ORDERBY_E#*/';
+
+        // Without an override the default is kept intact...
+        self::assertSame('SELECT * FROM users r ORDER BY r.id ASC', $formatter->formatSqlOrderBy($sql, ''));
+
+        // ...but an override replaces the whole section, keyword included, producing invalid SQL.
+        // This documents why the ORDER BY keyword must be placed outside the section markers.
+        self::assertSame('SELECT * FROM users r r.name DESC', $formatter->formatSqlOrderBy($sql, 'r.name DESC'));
+    }
+
     public function testFormatSqlPartsAppliesAllParts(): void
     {
         $formatter = new SqlFormatter();
