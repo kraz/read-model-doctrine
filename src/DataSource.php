@@ -39,6 +39,7 @@ use Kraz\ReadModelDoctrine\Query\RawQuery;
 use Kraz\ReadModelDoctrine\Query\RawQueryBuilder;
 use Kraz\ReadModelDoctrine\Tools\ParametersCollection;
 use Kraz\ReadModelDoctrine\Tools\QueryParts;
+use Kraz\ReadModelDoctrine\Tools\SortOrder;
 use LogicException;
 use Nyholm\Psr7\Factory\Psr17Factory;
 use Override;
@@ -706,10 +707,10 @@ class DataSource implements ReadDataProviderInterface
             foreach ($sort->items() as $item) {
                 $field = $this->mapCursorField($item['field'], $preparedDataSet);
                 if ($first) {
-                    $preparedDataSet->orderBy($field, $item['dir']);
+                    $preparedDataSet->orderBy($field, SortOrder::resolve($item['dir']));
                     $first = false;
                 } else {
-                    $preparedDataSet->addOrderBy($field, $item['dir']);
+                    $preparedDataSet->addOrderBy($field, SortOrder::resolve($item['dir']));
                 }
             }
 

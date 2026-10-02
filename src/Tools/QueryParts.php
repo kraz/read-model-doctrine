@@ -8,6 +8,7 @@ use BadMethodCallException;
 use Doctrine\ORM\Query\Expr;
 use Doctrine\ORM\QueryBuilder;
 use InvalidArgumentException;
+use SortDirection;
 use Stringable;
 
 use function array_filter;
@@ -198,16 +199,16 @@ class QueryParts implements Stringable
         return $this->add('having', $part);
     }
 
-    public function orderBy(string|Expr\OrderBy $sort, string|null $order = null): static
+    public function orderBy(string|Expr\OrderBy $sort, SortDirection|string|null $order = null): static
     {
-        $orderBy = $sort instanceof Expr\OrderBy ? $sort : new Expr\OrderBy($sort, $order);
+        $orderBy = $sort instanceof Expr\OrderBy ? $sort : SortOrder::createOrderBy($sort, $order);
 
         return $this->add('orderBy', $orderBy);
     }
 
-    public function addOrderBy(string|Expr\OrderBy $sort, string|null $order = null): static
+    public function addOrderBy(string|Expr\OrderBy $sort, SortDirection|string|null $order = null): static
     {
-        $orderBy = $sort instanceof Expr\OrderBy ? $sort : new Expr\OrderBy($sort, $order);
+        $orderBy = $sort instanceof Expr\OrderBy ? $sort : SortOrder::createOrderBy($sort, $order);
 
         return $this->add('orderBy', $orderBy, true);
     }

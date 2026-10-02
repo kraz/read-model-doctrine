@@ -108,6 +108,16 @@ final class QueryPartsTest extends TestCase
         self::assertSame(' ORDER BY a ASC, b DESC', $parts->getOrderBySql());
     }
 
+    public function testOrderByNormalizesTheSortDirection(): void
+    {
+        $parts = new QueryParts();
+        $parts->orderBy('a');
+        $parts->addOrderBy('b', 'desc');
+        $parts->addOrderBy('c', 'DESC NULLS LAST');
+
+        self::assertSame('a ASC, b DESC, c DESC NULLS LAST', $parts->getOrderBySqlReduced());
+    }
+
     public function testOrderByOverridesPreviousOrderBy(): void
     {
         $parts = new QueryParts();
